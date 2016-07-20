@@ -20,7 +20,7 @@
 
 import collections
 try:
-  from lxml import etree as ET
+    from lxml import etree as ET
 except ImportError:
     try:
         from xml.etree import cElementTree as ET
@@ -117,11 +117,16 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
         dom = ET.Element('domain', type='kvm')
         #required_elements = ['name', 'cpu', 'memory', 'os', 'features', 'devices']
         #for e in required_elements:
-            #pass
-            
+        #pass
+
         ET.SubElement(dom, 'name').text = instance['name']
         cpu = ET.SubElement(dom, 'cpu')
-        topology = ET.SubElement(cpu, 'topology', sockets=str(instance['cpu']['sockets']), cores=str(instance['cpu']['cores']), threads=str(instance['cpu']['threads']))
+        topology = ET.SubElement(
+            cpu,
+            'topology',
+            sockets=str(instance['cpu']['sockets']),
+            cores=str(instance['cpu']['cores']),
+            threads=str(instance['cpu']['threads']))
         ET.SubElement(dom, 'memory', unit='MiB').text = str(instance['memory'])
         os = ET.SubElement(dom, 'os')
         ET.SubElement(os, 'type').text = 'hvm'
@@ -130,7 +135,7 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
         features = ET.SubElement(dom, 'features')
         for f in ['acpi', 'apic', 'pae']:
             features.append(ET.Element(f))
-        
+
         domxml = ET.tostring(dom)
         utilities.print_info("\tXMLDesc: {}".format(domxml))
         return domxml
@@ -145,38 +150,50 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
                     if dom.name() == instance['name']:
                         dom_found = True
                         if dom.info()[0] == 1:
-                            utilities.print_info("\t{}: already running".format(instance['name']))
+                            utilities.print_info(
+                                "\t{}: already running".format(instance[
+                                    'name']))
                             continue
                         else:
-                            utilities.print_info("\t{}: booting".format(instance['name']))
-                            dom.create() 
-                            utilities.print_success("\tUpped instance {}.\n".format(instance['name']))
+                            utilities.print_info("\t{}: booting".format(
+                                instance['name']))
+                            dom.create()
+                            utilities.print_success(
+                                "\tUpped instance {}.\n".format(instance[
+                                    'name']))
             if not dom_found:
                 utilities.print_info("\t{}: defining".format(instance['name']))
                 dom = self._libvirt.defineXML(self._build_domain_xml(instance))
-                utilities.print_success("\tCreated instance {}.\n".format(instance['name']))
+                utilities.print_success("\tCreated instance {}.\n".format(
+                    instance['name']))
                 utilities.print_info("\t{}: booting".format(instance['name']))
                 try:
                     dom.create()
-                except libvirt.libvirtError as e:    
-                    utilities.logger.error("\nFailed to create/boot {}: {}".format(instance['name'], e))
+                except libvirt.libvirtError as e:
+                    utilities.logger.error(
+                        "\nFailed to create/boot {}: {}".format(instance[
+                            'name'], e))
                     dom.undefine()
 
     def destroy(self):
         utilities.print_info("Destroying libvirt instances ...")
         domains = self._libvirt.listAllDomains()
         for instance in self.instances:
-            utilities.print_info("\tDestroying {} ...".format(instance['name']))
+            utilities.print_info("\tDestroying {} ...".format(instance[
+                'name']))
             dom_found = False
             for dom in domains:
                 if not dom_found:
                     if dom.name() == instance['name']:
                         dom.destroy()
                         dom.undefine()
-                        utilities.print_success('\tDestroyed and undefined {}'.format(instance['name']))
+                        utilities.print_success(
+                            '\tDestroyed and undefined {}'.format(instance[
+                                'name']))
 
     def status(self):
-        states = ['no state', 'running', 'blocked', 'paused', 'being shutdown', 'shutoff', 'crashed', 'pmsuspended']
+        states = ['no state', 'running', 'blocked', 'paused', 'being shutdown',
+                  'shutoff', 'crashed', 'pmsuspended']
         Status = collections.namedtuple('Status', ['name', 'state'])
         status_list = []
         ins_found = False
@@ -184,11 +201,16 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
         for instance in self.instances:
             for dom in domains:
                 if not ins_found:
-                        if dom.name() == instance['name']:
-                            ins_found = True
-                            status_list.append(Status(name=instance['name'],state=states[dom.info()[0]]))
+                    if dom.name() == instance['name']:
+                        ins_found = True
+                        status_list.append(
+                            Status(
+                                name=instance['name'],
+                                state=states[dom.info()[0]]))
             if not ins_found:
-                status_list.append(Status(name=instance['name'],state='undefined'))
+                status_list.append(
+                    Status(
+                        name=instance['name'], state='undefined'))
 
         return status_list
 
@@ -205,7 +227,8 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
         interfaces = []
         # Parse XMLDesc using ElementTree for MAC addresses
         root = ET.fromstring(domxml)
-        macs = [e.get("address") for e in root.findall('./devices/interface/mac[@address]')]
+        macs = [e.get("address")
+                for e in root.findall('./devices/interface/mac[@address]')]
         # Search the listAllNetworks() DHCPLeases() to find MAC addresses
         for net in self._libvirt.listAllNetworks():
             for mac in macs:
@@ -236,9 +259,8 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
             if dom.name() == instance['name']:
                 ips = self._ips(dom.XMLDesc())
                 if len(ips) > 0:
-                    return template.format(instance['name'],
-                                       ips[0],
-                                       instance['sshuser'])
+                    return template.format(instance['name'], ips[0],
+                                           instance['sshuser'])
         return ''
 
     def login_cmd(self, instance):

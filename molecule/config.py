@@ -61,13 +61,11 @@ class Config(object):
         return self._combine(configs)
 
     def _combine(self, configs):
-        """ Perform a prioritized recursive merge of several source files,
+        """ Perform a prioritized recursive merge of serveral source files,
         and return a new dict.
-
         The merge order is based on the index of the list, meaning that
         elements at the end of the list will be merged last, and have greater
         precedence than elements at the beginning.
-
         :param configs: A list containing the yaml files to load.
         :return: dict
         """
@@ -77,6 +75,10 @@ class Config(object):
                               ac_merge=anyconfig.MS_DICTS_AND_LISTS)
 
     def _build_config_paths(self):
+        """
+        Convenience function to build up paths from our config values
+        :return: None
+        """
         for item in ['state_file', 'vagrantfile_file', 'rakefile_file']:
             d = self.config.get('molecule')
             if d:
@@ -87,4 +89,4 @@ class Config(object):
             d = self.config.get('ansible')
             if d:
                 d[item] = os.path.join(self.config['molecule']['molecule_dir'],
-                                       self.config['ansible'][item])
+self.config['ansible'][item])

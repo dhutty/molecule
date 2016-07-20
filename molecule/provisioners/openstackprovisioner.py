@@ -139,8 +139,7 @@ class OpenstackProvisioner(baseprovisioner.BaseProvisioner):
                 instance['created'] = True
                 num_retries = 0
                 while not utilities.check_ssh_availability(
-                        server['interface_ip'],
-                        instance['sshuser'],
+                        server['interface_ip'], instance['sshuser'],
                         timeout=6) or num_retries == 5:
                     utilities.logger.info("\t Waiting for ssh availability...")
                     num_retries += 1
@@ -157,8 +156,7 @@ class OpenstackProvisioner(baseprovisioner.BaseProvisioner):
                 'name']))
             if instance['name'] in active_instance_names:
                 if not self._openstack.delete_server(
-                        active_instance_names[instance['name']],
-                        wait=True):
+                        active_instance_names[instance['name']], wait=True):
                     utilities.logger.error("Unable to remove {}!".format(
                         instance['name']))
                 else:
@@ -173,13 +171,17 @@ class OpenstackProvisioner(baseprovisioner.BaseProvisioner):
 
         for instance in self.instances:
             if self.instance_is_accessible(instance):
-                status_list.append(Status(name=instance['name'],
-                                          state='UP',
-                                          provider='Openstack'))
+                status_list.append(
+                    Status(
+                        name=instance['name'],
+                        state='UP',
+                        provider='Openstack'))
             else:
-                status_list.append(Status(name=instance['name'],
-                                          state='DOWN',
-                                          provider='Openstack'))
+                status_list.append(
+                    Status(
+                        name=instance['name'],
+                        state='DOWN',
+                        provider='Openstack'))
 
         return status_list
 
@@ -196,9 +198,8 @@ class OpenstackProvisioner(baseprovisioner.BaseProvisioner):
     def instance_is_accessible(self, instance):
         instance_ip = self.conf(instance['name'])
         if instance_ip is not None:
-            return utilities.check_ssh_availability(instance_ip,
-                                                    instance['sshuser'],
-                                                    timeout=0)
+            return utilities.check_ssh_availability(
+                instance_ip, instance['sshuser'], timeout=0)
         return False
 
     def inventory_entry(self, instance):

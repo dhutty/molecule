@@ -4,6 +4,7 @@ docopt==0.6.2
 docker-py
 Jinja2>=2.8
 libvirt-python
+lxml
 paramiko
 pbr
 pexpect==4.1.0

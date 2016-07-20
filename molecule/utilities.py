@@ -65,8 +65,8 @@ info.setFormatter(TrailingNewlineFormatter('%(message)s'))
 warn = logging.StreamHandler()
 warn.setLevel(logging.WARN)
 warn.addFilter(LogFilter(logging.WARN))
-warn.setFormatter(TrailingNewlineFormatter('{}%(message)s'.format(
-    colorama.Fore.YELLOW)))
+warn.setFormatter(
+    TrailingNewlineFormatter('{}%(message)s'.format(colorama.Fore.YELLOW)))
 
 error = logging.StreamHandler()
 error.setLevel(logging.ERROR)
@@ -109,9 +109,8 @@ def write_template(src, dest, kwargs={}, _module='molecule', _dir='templates'):
         sysexit()
 
     # look for template in filesystem, then molecule package
-    loader = jinja2.ChoiceLoader([jinja2.FileSystemLoader(path,
-                                                          followlinks=True),
-                                  jinja2.PackageLoader(_module, _dir)])
+    loader = jinja2.ChoiceLoader([jinja2.FileSystemLoader(
+        path, followlinks=True), jinja2.PackageLoader(_module, _dir)])
 
     env = jinja2.Environment(loader=loader)
     template = env.get_template(filename)

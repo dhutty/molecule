@@ -56,13 +56,14 @@ class AnsibleGalaxyInstall:
 
         :return: None
         """
-        self.galaxy = sh.ansible_galaxy.bake('install',
-                                             '-f',
-                                             '-r',
-                                             self.requirements_file,
-                                             _env=self.env,
-                                             _out=self.out,
-                                             _err=self.err)
+        self.galaxy = sh.ansible_galaxy.bake(
+            'install',
+            '-f',
+            '-r',
+            self.requirements_file,
+            _env=self.env,
+            _out=self.out,
+            _err=self.err)
 
     def add_env_arg(self, name, value):
         """
