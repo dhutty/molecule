@@ -61,7 +61,7 @@ class Config(object):
         return self._combine(configs)
 
     def _combine(self, configs):
-        """ Perform a prioritized recursive merge of serveral source files,
+        """ Perform a prioritized recursive merge of several source files,
         and return a new dict.
 
         The merge order is based on the index of the list, meaning that
@@ -77,11 +77,6 @@ class Config(object):
                               ac_merge=anyconfig.MS_DICTS_AND_LISTS)
 
     def _build_config_paths(self):
-        """
-        Convenience function to build up paths from our config values
-
-        :return: None
-        """
         for item in ['state_file', 'vagrantfile_file', 'rakefile_file']:
             d = self.config.get('molecule')
             if d:

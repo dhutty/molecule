@@ -147,6 +147,30 @@ Openstack instance example
           ansible_groups:
             - ansiblegroup
 
+Libvirt Provisioner
+---------------------
+
+The Libvirt provisioner will create instances using the Python API for `libvirt`_ and can be configured with the following directives:
+
+- `uri` - the `connection string`_ to reach libvirtd
+
+.. _`libvirt`: http://libvirt.org
+.. _`connection string`: http://libvirt.org/uri.html
+
+Libvirt example
+---------------
+
+.. code-block:: yaml
+
+    ---
+    libvirt:
+      uri: 'qemu:///system'
+      instances:
+        - name: my_instance
+          image: 'CentOS 7'
+          sshuser: centos
+          ansible_groups:
+            - ansiblegroup
 
 Implementing Provisioners
 -------------------------

@@ -18,5 +18,5 @@
 #  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 #  THE SOFTWARE.
 
-__all__ = ['BaseProvisioner', 'DockerProvisioner', 'OpenstackProvisioner',
-           'ProxmoxProvisioner', 'VagrantProvisioner']
+__all__ = ['BaseProvisioner', 'DockerProvisioner', 'LibvirtProvisioner',
+           'OpenstackProvisioner', 'ProxmoxProvisioner', 'VagrantProvisioner']

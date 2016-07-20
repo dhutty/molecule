@@ -35,6 +35,7 @@ from molecule import state
 from molecule import utilities
 from molecule.provisioners import baseprovisioner
 from molecule.provisioners import dockerprovisioner
+from molecule.provisioners import libvirtprovisioner
 from molecule.provisioners import openstackprovisioner
 from molecule.provisioners import proxmoxprovisioner
 from molecule.provisioners import vagrantprovisioner
@@ -96,6 +97,8 @@ class Molecule(object):
             return dockerprovisioner.DockerProvisioner(self)
         elif 'openstack' in self.config.config:
             return openstackprovisioner.OpenstackProvisioner(self)
+        elif 'libvirt' in self._config.config:
+            return libvirtprovisioner.LibvirtProvisioner(self)
         else:
             return None
 
