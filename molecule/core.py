@@ -87,16 +87,6 @@ class Molecule(object):
         self._add_or_update_vars('group_vars')
         self._add_or_update_vars('host_vars')
         self._symlink_vars()
-        #self._config.populate_instance_names(self._env['MOLECULE_PLATFORM'],
-                                             #self._provisioner.name)
-
-        if self._args.get('--debug'):
-            utilities.debug(
-                'RUNNING CONFIG',
-                yaml.dump(
-                    self._config.config, default_flow_style=False, indent=2))
-
-        self._write_state_file()
 
     def get_provisioner(self):
         if 'vagrant' in self.config.config:
@@ -107,7 +97,7 @@ class Molecule(object):
             return dockerprovisioner.DockerProvisioner(self)
         elif 'openstack' in self.config.config:
             return openstackprovisioner.OpenstackProvisioner(self)
-        elif 'libvirt' in self._config.config:
+        elif 'libvirt' in self.config.config:
             return libvirtprovisioner.LibvirtProvisioner(self)
         else:
             return None
