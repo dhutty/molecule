@@ -159,22 +159,25 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
         libvirt:
             networks:
                 - name: molecule0
-                  forward: nat
-                  bridge: virbr10
+                  forward: nat|none
+                  #bridge: virbr10
                   cidr: 192.168.121.1/24
         """
         cidr_net = netaddr.IPNetwork(network['cidr'])
         # Define/create a new network: 'molecule'
         utilities.print_info("Creating libvirt network for molecule ...")
-        net = ET.Element('network', ipv6='no')
+        net = ET.Element('network', ipv6='yes')
         ET.SubElement(net, 'name').text = network['name']
-        forward = ET.SubElement(net, 'forward', type=network['forward'])
-        nat = ET.SubElement(forward, 'nat')
-        port = ET.SubElement(nat, 'port', start='1024', end='65535')
-        bridge = ET.SubElement(net, 'bridge', name=network['bridge'], stp='on', delay='0')
+        #forward = ET.SubElement(net, 'forward', type=network['forward'], dev=network['bridge'])
+        if 'forward' in network:
+            forward = ET.SubElement(net, 'forward', mode=getattr(network, 'forward', 'nat'))
+            if network['forward'] == 'nat':
+                nat = ET.SubElement(forward, 'nat')
+                port = ET.SubElement(nat, 'port', start='1024', end='65535')
+        #bridge = ET.SubElement(net, 'bridge', name=network['bridge'], stp='on', delay='0')
         ip = ET.SubElement(net, 'ip', address=str(cidr_net.ip), netmask=str(cidr_net.netmask))
         dhcp = ET.SubElement(ip, 'dhcp')
-        dhcprange = ET.SubElement(ip, 'range', start=str(cidr_net.ip), end=str(list(cidr_net)[-1]))
+        dhcprange = ET.SubElement(dhcp, 'range', start=str(cidr_net.ip), end=str(list(cidr_net)[-1]))
 
         netxml = ET.tostring(net)
         utilities.logger.debug("\tXMLDesc: {}".format(netxml))
@@ -187,7 +190,7 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
         """
         # TODO: Remove this when we have molecule defaults for libvirt networks
         if not network:
-            network = { 'name': 'molecule0', 'forward': 'nat', 'bridge': 'virbr10', 'cidr': '192.168.121.1/24' }
+            network = { 'name': 'molecule0', 'forward': 'nat', 'bridge': 'virbr10', 'cidr': '192.168.122.1/24' }
 
         nets = []
         for name in self._libvirt.listAllNetworks():
@@ -228,25 +231,37 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
         features = ET.SubElement(dom, 'features')
         for f in ['acpi', 'apic', 'pae']:
             features.append(ET.Element(f))
+        devices = ET.SubElement(dom, 'devices')
 
         # Disk elements
-        devices = ET.SubElement(dom, 'devices')
         disk = ET.SubElement(devices, 'disk', type='file', device='disk')
         ET.SubElement(disk, 'driver', name='qemu', type='qcow2')
         ET.SubElement(disk, 'source', file=(os.path.join(self._pool_path, instance['name'] + '.img')))
-        backing = ET.SubElement(disk, 'backingStore', type='file', index='1')
+        backing = ET.SubElement(disk, 'backingStore', type='file')
         ET.SubElement(backing, 'format', type='qcow2')
         ET.SubElement(backing, 'source', file=os.path.join(self._sources_path, instance['image']['name'] + '.img'))
         ET.SubElement(backing, 'backingStore')
         ET.SubElement(disk, 'target', dev='vda', bus='virtio')
         # Do we need alias/address elements here?
 
+        # Serial/console/usb elements
+        serial = ET.SubElement(devices, 'serial', type='pty')
+        target = ET.SubElement(serial, 'target', port='0')
+        alias = ET.SubElement(serial, 'alias', name='serial0')
+
+
+        console = ET.SubElement(devices, 'console', type='pty')
+        target = ET.SubElement(console, 'target', port='0', type='serial')
+        alias = ET.SubElement(console, 'alias', name='serial0')
+
         # Network interface elements
+        #iface = ET.SubElement(devices, 'interface', type='network')
+        #ET.SubElement(iface, 'source', network='default')
         for nic in instance['interfaces']:
             iface = ET.SubElement(devices, 'interface', type='network') 
             ET.SubElement(iface, 'source', network=nic['network_name'])
-            ET.SubElement(iface, 'target', dev='vnet' + str(instance['interfaces'].index(nic)))
-            ET.SubElement(iface, 'model', type='virtio')
+            #ET.SubElement(iface, 'target', dev='vnet' + str(instance['interfaces'].index(nic)))
+            ET.SubElement(iface, 'model', type='e1000')
         # Finally
         domxml = ET.tostring(dom)
         utilities.print_info("\tXMLDesc: {}".format(domxml))
@@ -343,7 +358,7 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
 
     def status(self):
         states = ['no state', 'running', 'blocked', 'paused', 'being shutdown', 'shutoff', 'crashed', 'pmsuspended']
-        Status = collections.namedtuple('Status', ['name', 'state'])
+        Status = collections.namedtuple('Status', ['name', 'state', 'provider'])
         status_list = []
         ins_found = False
         domains = self._libvirt.listAllDomains()
@@ -352,35 +367,49 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
                 if not ins_found:
                         if dom.name() == instance['name']:
                             ins_found = True
-                            status_list.append(Status(name=instance['name'],state=states[dom.info()[0]]))
+                            status_list.append(Status(name=instance['name'],state=states[dom.info()[0]], provider='Libvirt'))
             if not ins_found:
-                status_list.append(Status(name=instance['name'],state='undefined'))
+                status_list.append(Status(name=instance['name'],state='undefined', provider='Libvirt'))
 
         return status_list
 
 
-    def _ip(self, mac):
+    def _ips(self, interfaces):
         """
-        Get an IP address
-
-        :param: a MAC address
-        :return: its IP address
+        Get IP addresses, appending the IP address to each tuple.
+        
+        :param: a list of tuples: (MAC address, (libvirt) name of network)
+        :return: a list of tuples: (MAC address, (libvirt) name of network, IP address)
         """
-        for net in self._libvirt.listAllNetworks():
-            for lease in net.DHCPLeases():
+        for interface in interfaces:
+            net = self._libvirt.networkLookupByName(interface[1])
+            leases = net.DHCPLeases()
+            if not leases:
+                return None
+            for lease in leases:
+                print(lease)
                 if lease['mac'] == mac:
                     utilities.print_info("\t\tIPs for mac {}: {}".format(mac, lease['ipaddr']))
-                    return lease['ipaddr']
+                    interface.append(lease['ipaddr'])
+                    print(interface)
+
+        return interfaces
 
     def _macs(self, domain):
         """
         Get the list of MAC addresses for a running domain.
+
         :param: a libvirt domain object
-        :return: a list of MAC addresses
+        :return: a list of tuples: (MAC address, (libvirt) name of network)
         """
+        interfaces = []
         dom = ET.fromstring(domain.XMLDesc())
-        macs = [e.get("address") for e in dom.findall('./devices/interface/mac[@address]')]
-        return macs
+        nics = [e for e in dom.findall('./devices/interface[mac]')]
+        for nic in nics:
+            mac = nic.find('./mac[@address]').get("address")
+            source_net = nic.find('./source[@network]').get("network")
+            interfaces.append((mac, source_net))
+        return interfaces
 
     def inventory_entry(self, instance):
         template = self.host_template
@@ -391,11 +420,17 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
         for dom in domains:
             if dom.name() == instance['name']:
                 macs = self._macs(dom)
-                ips = [self._ip(mac) for mac in macs]
-                if len(ips) > 0:
+                ips = self._ips(macs)
+                if ips and len(ips[0]) > 2:
+                    # TODO: un-hardcode this test, so that we're not assuming which network molecule should use for the Ansible connection
+                    ips = [ip for ip in ips if ip[1] == 'molecule0']
                     return template.format(instance['name'],
-                                       ips[0],
-                                       instance['ssh_user'])
+                                       ips[0][2],
+                                       instance['sshuser'])
+                else:
+                    return template.format(instance['name'],
+                                       None,
+                                       instance['sshuser'])
         return ''
 
     def conf(self, name=None):
