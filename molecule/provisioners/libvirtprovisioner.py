@@ -20,6 +20,8 @@
 
 import collections
 import os.path
+import tarfile
+import time
 
 try:
   from lxml import etree as ET
@@ -177,7 +179,7 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
         #bridge = ET.SubElement(net, 'bridge', name=network['bridge'], stp='on', delay='0')
         ip = ET.SubElement(net, 'ip', address=str(cidr_net.ip), netmask=str(cidr_net.netmask))
         dhcp = ET.SubElement(ip, 'dhcp')
-        dhcprange = ET.SubElement(dhcp, 'range', start=str(cidr_net.ip), end=str(list(cidr_net)[-1]))
+        dhcprange = ET.SubElement(dhcp, 'range', start=str(cidr_net.ip), end=str(list(cidr_net)[-2]))
 
         netxml = ET.tostring(net)
         utilities.logger.debug("\tXMLDesc: {}".format(netxml))
@@ -221,8 +223,9 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
         # Basic elements
         dom = ET.Element('domain', type='kvm')
         ET.SubElement(dom, 'name').text = instance['name']
-        cpu = ET.SubElement(dom, 'cpu')
-        topology = ET.SubElement(cpu, 'topology', sockets=str(instance['cpu']['sockets']), cores=str(instance['cpu']['cores']), threads=str(instance['cpu']['threads']))
+        cpu = ET.SubElement(dom, 'cpu', mode='host-model')
+        model = ET.SubElement(cpu, 'model', fallback='allow')
+        #topology = ET.SubElement(cpu, 'topology', sockets=str(instance['cpu']['sockets']), cores=str(instance['cpu']['cores']), threads=str(instance['cpu']['threads']))
         ET.SubElement(dom, 'memory', unit='MiB').text = str(instance['memory'])
         os_element = ET.SubElement(dom, 'os')
         ET.SubElement(os_element, 'type').text = 'hvm'
@@ -235,14 +238,10 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
 
         # Disk elements
         disk = ET.SubElement(devices, 'disk', type='file', device='disk')
-        ET.SubElement(disk, 'driver', name='qemu', type='qcow2')
+        ET.SubElement(disk, 'driver', name='qemu', type='qcow2', cache='default')
         ET.SubElement(disk, 'source', file=(os.path.join(self._pool_path, instance['name'] + '.img')))
-        backing = ET.SubElement(disk, 'backingStore', type='file')
-        ET.SubElement(backing, 'format', type='qcow2')
-        ET.SubElement(backing, 'source', file=os.path.join(self._sources_path, instance['image']['name'] + '.img'))
-        ET.SubElement(backing, 'backingStore')
         ET.SubElement(disk, 'target', dev='vda', bus='virtio')
-        # Do we need alias/address elements here?
+        # Do we need alias/address elements here? No?
 
         # Serial/console/usb elements
         serial = ET.SubElement(devices, 'serial', type='pty')
@@ -261,19 +260,40 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
             iface = ET.SubElement(devices, 'interface', type='network') 
             ET.SubElement(iface, 'source', network=nic['network_name'])
             #ET.SubElement(iface, 'target', dev='vnet' + str(instance['interfaces'].index(nic)))
-            ET.SubElement(iface, 'model', type='e1000')
+            ET.SubElement(iface, 'model', type='virtio')
         # Finally
         domxml = ET.tostring(dom)
         utilities.print_info("\tXMLDesc: {}".format(domxml))
         return domxml
 
-    def _fetch_image(self, url, filename):
-        utilities.print_info("Fetching image {} ...".format(url))
+    def _fetch(self, url, filename):
+        if filename.endswith('.box'):
+            path = self._sources_path
+        else:
+            path = self._pool_path
+        utilities.print_info("Fetching image {} \n\t to {}...".format(url,os.path.join(path, filename)))
         r = requests.get(url, stream=True)
-        with open(os.path.join(self._sources_path, filename), 'wb') as fd:
+        if r.status_code != 200:
+            try:
+                os.unlink(os.path.join(path, filename))
+            except OSError:
+                pass
+            r.raise_for_status()
+        with open(os.path.join(path, filename), 'wb') as fd:
             for chunk in r.iter_content(chunk_size=4096):
                     fd.write(chunk)
 
+
+    def _unpack_box(self, image, imagefile):
+        # A vagrant box is actually just a .tar.gz from which we need to extract the .img
+        boxfile = os.path.join(self._sources_path, imagefile)
+        utilities.print_info("Unpacking boxfile {} ...".format(boxfile))
+        targz = tarfile.open(boxfile, mode='r:gz')
+        members = targz.getmembers()
+        for member in members:
+            if member.name.endswith('.img'):
+                targz.extract(member, self._pool_path)
+                os.rename(os.path.join(self._pool_path, member.name), os.path.join(self._pool_path, image['name'] + '.img'))
 
     def _create_volume(self, pool, instance):
         utilities.print_info("Creating libvirt volume for instance {}".format(instance['name']))
@@ -281,10 +301,12 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
         ET.SubElement(vol, 'name').text = instance['name'] + '.img'
         ET.SubElement(vol, 'capacity', unit='GiB').text = '40'
         target = ET.SubElement(vol, 'target')
-        ET.SubElement(target, 'path').text = os.path.join(self._pool_path, instance['name'] + '.img')
         ET.SubElement(target, 'format', type='qcow2')
+        backing = ET.SubElement(vol, 'backingStore')
+        ET.SubElement(backing, 'path').text = os.path.join(self._pool_path, instance['image']['name'] + '.img')
+        ET.SubElement(backing, 'format', type='qcow2')
         volxml = ET.tostring(vol)
-        utilities.logger.debug("\tXMLDesc: {}".format(volxml))
+        utilities.logger.info("\tXMLDesc: {}".format(volxml))
         newvol = pool.createXML(volxml)
         utilities.print_success("\tCreated volume for {}.\n".format(instance['name']))
 
@@ -306,8 +328,11 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
         domains = self._libvirt.listAllDomains()
         for instance in self.instances:
             # Ensure that the image source is available
-            if not os.path.exists(os.path.join(self._sources_path, instance['image']['name'] + '.img')):
-                self._fetch_image(instance['image']['source'], instance['image']['name'] + '.img')
+            imagefile = instance['image']['source'].split('/')[-1]
+            if not os.path.exists(os.path.join(self._sources_path, imagefile)):
+                self._fetch(instance['image']['source'],imagefile)
+                if imagefile.endswith('.box'):
+                    self._unpack_box(instance['image'], imagefile)
             # Is there an existing libvirt volume for this instance? If not, create one
             vol_found = False
             for vol in vols:
@@ -374,24 +399,32 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
         return status_list
 
 
-    def _ips(self, interfaces):
+    def _get_ips(self, interfaces):
         """
-        Get IP addresses, appending the IP address to each tuple.
+        Get IP addresses, adding the IP address to each interface's dict.
         
-        :param: a list of tuples: (MAC address, (libvirt) name of network)
-        :return: a list of tuples: (MAC address, (libvirt) name of network, IP address)
+        :param: a list of dicts: {'mac': MAC address, 'network_name': (libvirt) name of network}
+        :return: a list of dicts: {'mac': MAC address, 'network_name': (libvirt) name of network, 'ip': IP address}
         """
+        delay = 3
+        max_count  = 15
         for interface in interfaces:
-            net = self._libvirt.networkLookupByName(interface[1])
-            leases = net.DHCPLeases()
-            if not leases:
-                return None
-            for lease in leases:
-                print(lease)
-                if lease['mac'] == mac:
-                    utilities.print_info("\t\tIPs for mac {}: {}".format(mac, lease['ipaddr']))
-                    interface.append(lease['ipaddr'])
-                    print(interface)
+            net = self._libvirt.networkLookupByName(interface['network_name'])
+            count = 0
+            while 'ip' not in interface:
+                count = count + 1
+                if count > max_count:
+                    break
+                utilities.print_info("\t\t Waiting for DHCP for network: {}".format(interface['network_name']))
+                time.sleep(delay + count)
+                leases = net.DHCPLeases()
+                if not leases:
+                    time.sleep(delay + count)
+                    continue
+                for lease in leases:
+                    if lease['mac'] == interface['mac']:
+                        utilities.print_info("\t\tIP for mac {} on network: {}: {}".format(interface['mac'], interface['network_name'], lease['ipaddr']))
+                        interface['ip'] = lease['ipaddr']
 
         return interfaces
 
@@ -400,7 +433,7 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
         Get the list of MAC addresses for a running domain.
 
         :param: a libvirt domain object
-        :return: a list of tuples: (MAC address, (libvirt) name of network)
+        :return: a list of dicts: {'mac': MAC address, 'network_name': (libvirt) name of network}
         """
         interfaces = []
         dom = ET.fromstring(domain.XMLDesc())
@@ -408,7 +441,7 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
         for nic in nics:
             mac = nic.find('./mac[@address]').get("address")
             source_net = nic.find('./source[@network]').get("network")
-            interfaces.append((mac, source_net))
+            interfaces.append({'mac': mac, 'network_name': source_net})
         return interfaces
 
     def inventory_entry(self, instance):
@@ -419,42 +452,55 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
             return ''
         for dom in domains:
             if dom.name() == instance['name']:
-                macs = self._macs(dom)
-                ips = self._ips(macs)
-                if ips and len(ips[0]) > 2:
-                    # TODO: un-hardcode this test, so that we're not assuming which network molecule should use for the Ansible connection
-                    ips = [ip for ip in ips if ip[1] == 'molecule0']
-                    return template.format(instance['name'],
-                                       ips[0][2],
-                                       instance['sshuser'])
-                else:
-                    return template.format(instance['name'],
-                                       None,
-                                       instance['sshuser'])
+                utilities.print_info("\t DHCP for instance: {}".format(instance['name']))
+                interfaces = self._macs(dom)
+                interfaces = self._get_ips(interfaces)
+                for iface in interfaces:
+                    # TODO: This will use the first interface (in the order listed in molecule.yml) that has an IP
+                    if 'ip' in iface:
+                        return template.format(instance['name'],
+                                   iface['ip'],
+                                   instance['sshuser'])
+                # No interfaces got an IP address
+                return template.format(instance['name'],
+                                   None,
+                                   instance['sshuser'])
         return ''
 
     def conf(self, name=None):
 
+        conf = {}
         with open(self.molecule.config.config['molecule'][
                 'inventory_file']) as instance:
             for line in instance:
                 if line.split()[0] == name:
                     ansible_host = line.split()[1]
-                    host_address = ansible_host.split('=')[1]
-                    return host_address
-        return None
+                    conf['HostName'] = ansible_host.split('=')[1]
+        return conf
 
     def login_cmd(self, instance_name):
-        return 'ssh {} -l {}'
+        cmd = 'ssh {} '
+        for instance in self.instances:
+            if instance_name == instance['name']:
+                if 'sshuser' in instance:
+                    cmd += '-l {} '
+                if 'sshkey' in instance:
+                    cmd += '-i {} '
+
+        return cmd
 
     def login_args(self, instance_name):
 
         # Try to retrieve the SSH configuration of the host.
         conf = self.conf(name=instance_name)
         user = ''
+        sshkey = ''
 
         for instance in self.instances:
             if instance_name == instance['name']:
-                user = instance['sshuser']
+                if 'sshuser' in instance:
+                    user = instance['sshuser']
+                if 'sshkey' in instance:
+                   sshkey = os.path.expanduser(instance['sshkey'])
 
-        return [conf, user]
+        return [conf['HostName'], user, sshkey]
