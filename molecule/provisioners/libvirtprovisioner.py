@@ -125,7 +125,7 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
 
         return params
 
-    def _create_pool(self, pool_name):
+    def _define_pool(self, pool_name):
         """
         Define a libvirt storage pool and start it.
 
@@ -143,6 +143,11 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
         newpool.create()
 
     def _up_pool(self, pool_name='molecule'):
+        """
+        Up or define/up a libvirt storage pool
+
+        :param: name for the pool
+        """
         pools = []
         # Ensure we have a storage pool to upload *to*
         for name in self._libvirt.listAllStoragePools():
@@ -157,10 +162,10 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
                     pool_found.create()
                 return pools[0]  # existing poolwork is now running
         if not len(pools) > 0:
-            pools.append(self._create_pool(pool_name))
+            pools.append(self._define_pool(pool_name))
             return pools[0]
 
-    def _create_network(self, network=None):
+    def _define_network(self, network=None):
         """
         Define a libvirt network and start it.
         TODO: Make this all configurable. 'network' will be a dict that describes a libvirt network, populated based on molecule.yml.
@@ -176,7 +181,6 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
         utilities.print_info("Creating libvirt network for molecule ...")
         net = ET.Element('network', ipv6='yes')
         ET.SubElement(net, 'name').text = network['name']
-        #forward = ET.SubElement(net, 'forward', type=network['forward'], dev=network['bridge'])
         if 'forward' in network:
             forward = ET.SubElement(
                 net, 'forward', mode=getattr(network, 'forward', 'nat'))
@@ -197,7 +201,9 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
 
     def _up_network(self, network=None):
         """
-        Create/up a libvirt network.
+        Up or define/up a libvirt network.
+
+        :param: a dict describing the network, with unique 'name' and 'cidr' keys
         """
         # TODO: Remove this when we have molecule defaults for libvirt networks
         if not network:
@@ -225,19 +231,17 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
         """
         Builds a string of xml suitable for self._libvirt.defineXML(xml)
 
+        :param: a dict that describes an instance (a virtualization guest that this provisioner should create)
         :return: an xml string
         """
-        #utilities.print_info("\t{}: {}".format(instance['name'], instance))
-        #required_elements = ['name', 'cpu', 'memory', 'os', 'features', 'devices']
-        #for e in required_elements:
-        #pass
 
         # Basic elements
         dom = ET.Element('domain', type='kvm')
         ET.SubElement(dom, 'name').text = instance['name']
         cpu = ET.SubElement(dom, 'cpu', mode='host-model')
         model = ET.SubElement(cpu, 'model', fallback='allow')
-        #topology = ET.SubElement(cpu, 'topology', sockets=str(instance['cpu']['sockets']), cores=str(instance['cpu']['cores']), threads=str(instance['cpu']['threads']))
+        if 'cpu' in instance:
+            topology = ET.SubElement(cpu, 'topology', sockets=str(instance['cpu']['sockets']), cores=str(instance['cpu']['cores']), threads=str(instance['cpu']['threads']))
         ET.SubElement(dom, 'memory', unit='MiB').text = str(instance['memory'])
         os_element = ET.SubElement(dom, 'os')
         ET.SubElement(os_element, 'type').text = 'hvm'
@@ -257,7 +261,6 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
             'source',
             file=(os.path.join(self._pool_path, instance['name'] + '.img')))
         ET.SubElement(disk, 'target', dev='vda', bus='virtio')
-        # Do we need alias/address elements here? No?
 
         # Serial/console/usb elements
         serial = ET.SubElement(devices, 'serial', type='pty')
@@ -274,11 +277,10 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
         for nic in instance['interfaces']:
             iface = ET.SubElement(devices, 'interface', type='network')
             ET.SubElement(iface, 'source', network=nic['network_name'])
-            #ET.SubElement(iface, 'target', dev='vnet' + str(instance['interfaces'].index(nic)))
             ET.SubElement(iface, 'model', type='virtio')
         # Finally
         domxml = ET.tostring(dom)
-        #utilities.print_info("\tXMLDesc: {}".format(domxml))
+        utilities.logger.debug("\tXMLDesc: {}".format(domxml))
         return domxml
 
     def _fetch(self, url, filename):
@@ -286,7 +288,7 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
         Fetches a URL, saves response to <filename>.
 
         :param: URL to fetch
-        :param: destination filename, will in either self._sources_path or self._pool_path
+        :param: destination filename, will be in either self._sources_path or self._pool_path
         """
         if filename.endswith('.box'):
             path = self._sources_path
@@ -328,8 +330,8 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
         """
         Create a libvirt storage volume for an instance
 
-        :param: Storage Pool object
-        :param: instance dict
+        :param: Libvirt Storage Pool object
+        :param: a dict that describes an instance
         """
         utilities.print_info("Creating libvirt volume for instance {}".format(
             instance['name']))
@@ -352,8 +354,8 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
         """
         Destroy a libvirt storage volume for an instance
 
-        :param: Storage Pool object
-        :param: instance dict
+        :param: Libvirt Storage Pool object
+        :param: a dict that describes an instance
         """
         utilities.print_info(
             "\t\tDestroying libvirt volume for instance {}".format(instance[
@@ -369,6 +371,11 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
             instance['name']))
 
     def up(self, no_provision=True):
+        """
+        Up or define/up a libvirt instance.
+
+        :param: no_provision is not meaningful for libvirt instances
+        """
         for net in self.molecule.config.config['libvirt']['networks']:
             self._up_network(net)
         pool = self._up_pool()
@@ -381,7 +388,7 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
                 self._fetch(instance['image']['source'], imagefile)
                 if imagefile.endswith('.box'):
                     self._unpack_box(instance['image'], imagefile)
-            # Is there an existing libvirt volume for this instance? If not, create one
+            # Is there an existing libvirt volume for this instance?
             vol_found = False
             for vol in vols:
                 if vol.name() == instance['name'] + '.img':
@@ -422,6 +429,11 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
                     dom.undefine()
 
     def destroy(self):
+        """
+        Destroy/undefine a libvirt instance.
+
+        Since molecule-created instances are ephemeral, always undefine the libvirt domain and its storage volume.
+        """
         domains = self._libvirt.listAllDomains()
         pool = self._up_pool()
         for instance in self.instances:
@@ -500,6 +512,12 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
                     return interface['ip']
 
     def _nics(self, domain):
+        """
+        Retrieve a list of network interfaces
+
+        :param: a libvirt domain object
+        :return: list of interfaces
+        """
         dom = ET.fromstring(domain.XMLDesc())
         nics = [e for e in dom.findall('./devices/interface[mac]')]
         return nics
@@ -507,6 +525,9 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
     def _get_ip(self, mac):
         """
         Search libvirt's networks' leases for this MAC, return its IP address
+
+        :param: a MAC address, formatted as in libvirt's XML: 'AA:BB:CC:DD:EE:FF'
+        :return: an IPv4 address
         """
         nets = self._libvirt.listAllNetworks()
         for net in nets:
@@ -544,7 +565,7 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
             if dom.name() == instance['name']:
                 utilities.print_info("\tDHCP for instance: {}".format(instance[
                     'name']))
-                # In case no interfaces get an IP address. Perhaps this should be a fatal error?
+                # In case no interfaces get an IP address. Perhaps this should be a fatal error, since molecule cannot run Ansible?
                 entry = template.format(instance['name'], None,
                                         instance['ssh_key'],
                                         instance['ssh_user'])
@@ -560,7 +581,7 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
                         entry = template.format(instance['name'], iface['ip'],
                                                 instance['ssh_key'],
                                                 instance['ssh_user'])
-                        # TODO: This means Ansible will use the first interface (in the order listed in molecule.yml) that has/gets an IP
+                        # TODO: This means Ansible will use the first interface (in the order listed in molecule.yml) that has/gets an IP, perhaps support more configurability?
                         instance['ip'] = iface['ip']
                         break
                     iface['ip'] = self._lease_ip(iface)
