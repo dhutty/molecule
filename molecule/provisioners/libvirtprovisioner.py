@@ -241,7 +241,12 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
         cpu = ET.SubElement(dom, 'cpu', mode='host-model')
         model = ET.SubElement(cpu, 'model', fallback='allow')
         if 'cpu' in instance:
-            topology = ET.SubElement(cpu, 'topology', sockets=str(instance['cpu']['sockets']), cores=str(instance['cpu']['cores']), threads=str(instance['cpu']['threads']))
+            topology = ET.SubElement(
+                cpu,
+                'topology',
+                sockets=str(instance['cpu']['sockets']),
+                cores=str(instance['cpu']['cores']),
+                threads=str(instance['cpu']['threads']))
         ET.SubElement(dom, 'memory', unit='MiB').text = str(instance['memory'])
         os_element = ET.SubElement(dom, 'os')
         ET.SubElement(os_element, 'type').text = 'hvm'
