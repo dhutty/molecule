@@ -74,8 +74,7 @@ Other Notes
 Libvirt
 ---------
 
-The libvirt toolkit is known to work with the `vagrant-libvirt`_ provider plugin. But before installing this plugin you need to have libvirt installed(if you plan to run the tests on your local machine). Some users have reported dependency issues while installing vagrant-libvirt, so it is highly recommended to check `this section`_. You also need a vagrant compatible version installed on your machine(note that, not all versions are supported. Check the vagrant-libvirt documentation).
-
+Molecule partially supports the use of libvirt work with the `vagrant-libvirt`_ provider plugin. But before installing this plugin you need to have libvirt installed (if you plan to run the tests on your local machine). Some users have reported dependency issues while installing vagrant-libvirt, so it is highly recommended to check `this section`_. You also need a vagrant compatible version installed on your machine (note that, not all versions are supported. Check the vagrant-libvirt documentation). Not all libvirt/vagrant-libvirt functionality will work, especially not on every hypervisor. Molecule has not been extensively tested against libvirt with vagrant-libvirt although there has been some success, it's for the adventurous.
 
 You can install the vagrant-libvirt plugin with::
 
@@ -112,9 +111,6 @@ Connection-independent options:
 .. _`provider options`: https://github.com/pradels/vagrant-libvirt#provider-options
 .. _`libvirt connection URI`: http://libvirt.org/uri.html
 
-Here is an example of how could look like your molecule.yml file:
-
-.. code-block:: yaml
 
 Domain Specific Options
 ^^^^^^^^^^^^^^^^^^^^^^^
@@ -135,11 +131,11 @@ Domain Specific Options
 Usage
 ^^^^^
 
-All libvirt specific options(such as the one above, provider specific and domain options) must be specified in the providers section. Nevertheless, other options such as synced or network settings should be added to the raw_config_args, as they are vagrant generic parameters. Note that you can use special libvirt parameters such as "libvirt__tunnel_type", as it is shown in the example below.
+All libvirt specific options (such as the ones above, provider-specific and domain options) must be specified in the providers section. Nevertheless, other options such as synced or network settings should be added to the raw_config_args, as they are vagrant generic parameters. Note that you can use special libvirt parameters such as "libvirt__tunnel_type", as it is shown in the example below.
 
 Please, refer to the `vagrant-libvirt`_ documentation for getting a better understanding of all available options.
 
-There is an example:
+Here is an example of how could look like your molecule.yml file:
 
 .. code-block:: yaml
 
