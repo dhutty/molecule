@@ -154,7 +154,7 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
             pool_found = self._libvirt.storagePoolLookupByName(pool_name)
             if pool_found and not pool_found.isActive():
                 pool_found.create()
-                return pool_found  # existing pool is now running
+            return pool_found  # existing pool is now running
         except libvirt.libvirtError:
             return self._define_pool(pool_name)
 
@@ -214,7 +214,7 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
             net_found = self._libvirt.networkLookupByName(network['name'])
             if net_found and not net_found.isActive():
                 net_found.create()
-                return net_found  # existing network is now running
+            return net_found  # existing network is now running
         except libvirt.libvirtError:
             return self._define_network(network)
 
