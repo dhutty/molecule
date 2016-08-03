@@ -142,6 +142,7 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
         utilities.logger.debug("\tXMLDesc: {}".format(poolxml))
         newpool = self._libvirt.storagePoolDefineXML(poolxml)
         newpool.create()
+        return newpool
 
     def _up_pool(self, pool_name='molecule'):
         """
@@ -149,22 +150,13 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
 
         :param: name for the pool
         """
-        pools = []
-        # Ensure we have a storage pool to upload *to*
-        for name in self._libvirt.listAllStoragePools():
-            pool_found = False
-            try:
-                pool_found = self._libvirt.storagePoolLookupByName(pool_name)
-            except libvirt.libvirtError:
-                pass
-            if pool_found:
-                pools.append(pool_found)
-                if not pool_found.isActive():
-                    pool_found.create()
-                return pools[0]  # existing poolwork is now running
-        if not len(pools) > 0:
-            pools.append(self._define_pool(pool_name))
-            return pools[0]
+        try:
+            pool_found = self._libvirt.storagePoolLookupByName(pool_name)
+            if pool_found and not pool_found.isActive():
+                pool_found.create()
+                return pool_found  # existing pool is now running
+        except libvirt.libvirtError:
+            return self._define_pool(pool_name)
 
     def _define_network(self, network=None):
         """
@@ -203,7 +195,7 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
         netxml = ET.tostring(net)
         utilities.logger.debug("\tXMLDesc: {}".format(netxml))
         newnet = self._libvirt.networkDefineXML(netxml)
-        newnet.create()
+        return newnet.create()
 
     def _up_network(self, network=None):
         """
@@ -222,9 +214,9 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
             net_found = self._libvirt.networkLookupByName(network['name'])
             if net_found and not net_found.isActive():
                 net_found.create()
-                return  # existing network is now running
+                return net_found  # existing network is now running
         except libvirt.libvirtError:
-            self._define_network(network)
+            return self._define_network(network)
 
     def _build_domain_xml(self, instance):
         """
