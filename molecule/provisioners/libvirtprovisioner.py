@@ -50,11 +50,12 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
         super(LibvirtProvisioner, self).__init__(molecule)
         self._provider = self._get_provider()
         self._platform = self._get_platform()
-        self._libvirt = libvirt.open(self.molecule.config.config['libvirt']['uri'])
-        self._pool_path = os.path.expanduser(
-            os.path.join('~', '.libvirt', 'images'))
-        self._sources_path = os.path.expanduser(
-            os.path.join('~', '.libvirt', 'sources'))
+        self._libvirt = libvirt.open(self.molecule.config.config['libvirt'][
+            'uri'])
+        self._pool_path = os.path.expanduser(os.path.join('~', '.libvirt',
+                                                          'images'))
+        self._sources_path = os.path.expanduser(os.path.join('~', '.libvirt',
+                                                             'sources'))
         for path in [self._pool_path, self._sources_path]:
             if not os.path.exists(path):
                 os.makedirs(path)
@@ -109,7 +110,7 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
     def testinfra_args(self):
         kwargs = {
             'ansible-inventory':
-            self.m._config.config['ansible']['inventory_file'],
+            self.molecule.config.config['ansible']['inventory_file'],
             'connection': 'ansible'
         }
 
@@ -182,17 +183,22 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
         net = ET.Element('network', ipv6='yes')
         ET.SubElement(net, 'name').text = network['name']
         if 'forward' in network:
-            forward = ET.SubElement(
-                net, 'forward', mode=getattr(network, 'forward', 'nat'))
+            forward = ET.SubElement(net,
+                                    'forward',
+                                    mode=getattr(network, 'forward', 'nat'))
             if network['forward'] == 'nat':
                 nat = ET.SubElement(forward, 'nat')
                 port = ET.SubElement(nat, 'port', start='1024', end='65535')
         #bridge = ET.SubElement(net, 'bridge', name=network['bridge'], stp='on', delay='0')
-        ip = ET.SubElement(
-            net, 'ip', address=str(cidr_net.ip), netmask=str(cidr_net.netmask))
+        ip = ET.SubElement(net,
+                           'ip',
+                           address=str(cidr_net.ip),
+                           netmask=str(cidr_net.netmask))
         dhcp = ET.SubElement(ip, 'dhcp')
-        dhcprange = ET.SubElement(
-            dhcp, 'range', start=str(cidr_net.ip), end=str(list(cidr_net)[-2]))
+        dhcprange = ET.SubElement(dhcp,
+                                  'range',
+                                  start=str(cidr_net.ip),
+                                  end=str(list(cidr_net)[-2]))
 
         netxml = ET.tostring(net)
         utilities.logger.debug("\tXMLDesc: {}".format(netxml))
@@ -212,20 +218,13 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
                        'bridge': 'virbr10',
                        'cidr': '192.168.122.1/24'}
 
-        nets = []
-        for name in self._libvirt.listAllNetworks():
-            net_found = False
-            try:
-                net_found = self._libvirt.networkLookupByName(network['name'])
-            except libvirt.libvirtError:
-                pass
-            if net_found:
-                nets.append(net_found)
-                if not net_found.isActive():
-                    net_found.create()
+        try:
+            net_found = self._libvirt.networkLookupByName(network['name'])
+            if net_found and not net_found.isActive():
+                net_found.create()
                 return  # existing network is now running
-        if not len(nets) > 0:
-            self._create_network(network)
+        except libvirt.libvirtError:
+            self._define_network(network)
 
     def _build_domain_xml(self, instance):
         """
@@ -241,12 +240,11 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
         cpu = ET.SubElement(dom, 'cpu', mode='host-model')
         model = ET.SubElement(cpu, 'model', fallback='allow')
         if 'cpu' in instance:
-            topology = ET.SubElement(
-                cpu,
-                'topology',
-                sockets=str(instance['cpu']['sockets']),
-                cores=str(instance['cpu']['cores']),
-                threads=str(instance['cpu']['threads']))
+            topology = ET.SubElement(cpu,
+                                     'topology',
+                                     sockets=str(instance['cpu']['sockets']),
+                                     cores=str(instance['cpu']['cores']),
+                                     threads=str(instance['cpu']['threads']))
         ET.SubElement(dom, 'memory', unit='MiB').text = str(instance['memory'])
         os_element = ET.SubElement(dom, 'os')
         ET.SubElement(os_element, 'type').text = 'hvm'
@@ -259,8 +257,11 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
 
         # Disk elements
         disk = ET.SubElement(devices, 'disk', type='file', device='disk')
-        ET.SubElement(
-            disk, 'driver', name='qemu', type='qcow2', cache='default')
+        ET.SubElement(disk,
+                      'driver',
+                      name='qemu',
+                      type='qcow2',
+                      cache='default')
         ET.SubElement(
             disk,
             'source',
@@ -470,17 +471,13 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
                 if not ins_found:
                     if dom.name() == instance['name']:
                         ins_found = True
-                        status_list.append(
-                            Status(
-                                name=instance['name'],
-                                state=states[dom.info()[0]],
-                                provider='Libvirt'))
+                        status_list.append(Status(name=instance['name'],
+                                                  state=states[dom.info()[0]],
+                                                  provider='Libvirt'))
             if not ins_found:
-                status_list.append(
-                    Status(
-                        name=instance['name'],
-                        state='undefined',
-                        provider='Libvirt'))
+                status_list.append(Status(name=instance['name'],
+                                          state='undefined',
+                                          provider='Libvirt'))
 
         return status_list
 
@@ -601,16 +598,14 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
                 for iface in instance['interfaces']:
                     if 'ip' not in iface:
                         cmd = []
-                        ssh_key = os.path.expanduser(
-                            instance.get('ssh_key', '~/.ssh/id_rsa'))
+                        ssh_key = os.path.expanduser(instance.get(
+                            'ssh_key', '~/.ssh/id_rsa'))
                         ssh_user = instance.get('ssh_user', '$USER')
                         login_args = [ssh_user, ssh_key, instance['ip']]
                         login_cmd = 'ssh {} -i {} -l {} {}'
-                        cmd.extend(
-                            shlex.split(
-                                login_cmd.format(
-                                    instance['ip'], ssh_key, ssh_user,
-                                    '-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null')))
+                        cmd.extend(shlex.split(login_cmd.format(
+                            instance['ip'], ssh_key, ssh_user,
+                            '-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null')))
                         device = ''.join(['eth', str(i)])
                         # TODO: This use of nmcli means we're assuming el7-like clients, use something more generic to run dhclient against the interface device
                         cmd.append(' '.join(
@@ -632,7 +627,7 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
         Parse the inventory file, return a hash for login_args()
         """
         conf = {}
-        with open(self.molecule.config.config['molecule'][
+        with open(self.molecule.config.config['ansible'][
                 'inventory_file']) as instance:
             for line in instance:
                 if len(line.split()) > 0 and line.split()[0] == name:
@@ -664,8 +659,8 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
 
         for instance in self.instances:
             if instance_name == instance['name']:
-                ssh_key = os.path.expanduser(
-                    instance.get('ssh_key', '~/.ssh/id_rsa'))
+                ssh_key = os.path.expanduser(instance.get('ssh_key',
+                                                          '~/.ssh/id_rsa'))
                 ssh_user = instance.get('ssh_user', '$USER')
 
         return [ssh_extra_args, ssh_key, ssh_user, conf['HostName']]
