@@ -19,6 +19,7 @@
 #  THE SOFTWARE.
 
 import collections
+import getpass
 import os.path
 import shlex
 import subprocess
@@ -560,7 +561,7 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
                 # TODO: replace with using "proper" defaults
                 ssh_key = os.path.expanduser(
                     instance.get('ssh_key', '~/.ssh/id_rsa'))
-                ssh_user = instance.get('ssh_user', '$USER')
+                ssh_user = instance.get('ssh_user', getpass.getuser())
                 # In case no interfaces get an IP address. Perhaps this should be a fatal error, since molecule cannot run Ansible?
                 entry = template.format(instance['name'], None, ssh_key,
                                         ssh_user)
