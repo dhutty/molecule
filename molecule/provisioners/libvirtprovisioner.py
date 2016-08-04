@@ -435,14 +435,20 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
             for dom in domains:
                 if not dom_found:
                     if dom.name() == instance['name']:
+                        dom_found = True
                         dom.destroy()
                         dom.undefine()
                         utilities.print_success(
                             '\tDestroyed and undefined libvirt instance {}'.format(
                                 instance['name']))
             # Destroy volume
-            self._destroy_volume(pool, instance)
+            try:
+                self._destroy_volume(pool, instance)
+            except:
+                # TODO: Consider whether this really cause molecule to exit fail?
+                pass
             # TODO: Consider whether to destroy/undefine molecule networks if they are no longer used
+            return True
 
     def status(self):
         states = ['no state', 'running', 'blocked', 'paused', 'being shutdown',
