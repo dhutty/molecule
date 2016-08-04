@@ -233,7 +233,7 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
                 sockets=str(instance['cpu']['sockets']),
                 cores=str(instance['cpu']['cores']),
                 threads=str(instance['cpu']['threads']))
-        ET.SubElement(dom, 'memory', unit='MiB').text = str(instance['memory'])
+        ET.SubElement(dom, 'memory', unit='MiB').text = str(instance.get('memory', 1024))
         os_element = ET.SubElement(dom, 'os')
         ET.SubElement(os_element, 'type').text = 'hvm'
         boot = ET.SubElement(os_element, 'boot', dev='hd')
