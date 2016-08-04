@@ -265,7 +265,7 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
         # Network interface elements
         #iface = ET.SubElement(devices, 'interface', type='network')
         #ET.SubElement(iface, 'source', network='default')
-        for nic in instance['interfaces']:
+        for nic in instance.get('interfaces', [{'network_name': 'default'}]):
             iface = ET.SubElement(devices, 'interface', type='network')
             ET.SubElement(iface, 'source', network=nic['network_name'])
             ET.SubElement(iface, 'model', type='virtio')
