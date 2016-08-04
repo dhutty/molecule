@@ -547,7 +547,8 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
 
     def inventory_entry(self, instance):
         template = self.host_template
-
+        # TODO: replace with using "proper" defaults
+        instance['interfaces'] = instance.get('interfaces', [{'network_name': 'default'}])
         domains = self._libvirt.listAllDomains()
         if len(domains) == 0:
             return ''
