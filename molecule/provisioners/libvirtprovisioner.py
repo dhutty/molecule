@@ -19,6 +19,7 @@
 #  THE SOFTWARE.
 
 import collections
+import getpass
 import os.path
 import shlex
 import subprocess
@@ -233,7 +234,11 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
                 sockets=str(instance['cpu']['sockets']),
                 cores=str(instance['cpu']['cores']),
                 threads=str(instance['cpu']['threads']))
+<<<<<<< HEAD
         ET.SubElement(dom, 'memory', unit='MiB').text = str(instance['memory'])
+=======
+        ET.SubElement(dom, 'memory', unit='MiB').text = str(instance.get('memory', 1024))
+>>>>>>> jenkins
         os_element = ET.SubElement(dom, 'os')
         ET.SubElement(os_element, 'type').text = 'hvm'
         boot = ET.SubElement(os_element, 'boot', dev='hd')
@@ -265,7 +270,7 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
         # Network interface elements
         #iface = ET.SubElement(devices, 'interface', type='network')
         #ET.SubElement(iface, 'source', network='default')
-        for nic in instance['interfaces']:
+        for nic in instance.get('interfaces', [{'network_name': 'default'}]):
             iface = ET.SubElement(devices, 'interface', type='network')
             ET.SubElement(iface, 'source', network=nic['network_name'])
             ET.SubElement(iface, 'model', type='virtio')
@@ -434,14 +439,20 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
             for dom in domains:
                 if not dom_found:
                     if dom.name() == instance['name']:
+                        dom_found = True
                         dom.destroy()
                         dom.undefine()
                         utilities.print_success(
                             '\tDestroyed and undefined libvirt instance {}'.format(
                                 instance['name']))
             # Destroy volume
-            self._destroy_volume(pool, instance)
+            try:
+                self._destroy_volume(pool, instance)
+            except:
+                # TODO: Consider whether this really cause molecule to exit fail?
+                pass
             # TODO: Consider whether to destroy/undefine molecule networks if they are no longer used
+            return True
 
     def status(self):
         states = ['no state', 'running', 'blocked', 'paused', 'being shutdown',
@@ -547,7 +558,8 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
 
     def inventory_entry(self, instance):
         template = self.host_template
-
+        # TODO: replace with using "proper" defaults
+        instance['interfaces'] = instance.get('interfaces', [{'network_name': 'default'}])
         domains = self._libvirt.listAllDomains()
         if len(domains) == 0:
             return ''
@@ -559,7 +571,7 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
                 # TODO: replace with using "proper" defaults
                 ssh_key = os.path.expanduser(
                     instance.get('ssh_key', '~/.ssh/id_rsa'))
-                ssh_user = instance.get('ssh_user', '$USER')
+                ssh_user = instance.get('ssh_user', getpass.getuser())
                 # In case no interfaces get an IP address. Perhaps this should be a fatal error, since molecule cannot run Ansible?
                 entry = template.format(instance['name'], None, ssh_key,
                                         ssh_user)
