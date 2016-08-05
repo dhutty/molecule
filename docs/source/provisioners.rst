@@ -2,7 +2,7 @@ Provisioners
 ============
 
 Molecule uses provisioners to bring up Ansible ready hosts to operate on.
-Currently, Molecule supports two provisioners: Vagrant and Docker.
+Currently, Molecule supports several provisioners: Vagrant, Docker Openstack and Libvirt.
 
 The provisioner can set when using ``init`` command or through the
 ``molecule.yml`` file.
@@ -147,6 +147,44 @@ Openstack instance example
           ansible_groups:
             - ansiblegroup
 
+Libvirt Provisioner
+---------------------
+
+The Libvirt provisioner will create instances using the Python API for `libvirt`_ and can be configured with the following directives:
+
+- `uri` - the `connection string`_ to reach libvirtd.
+- `networks` is a list of hashes that describe the networks that libvirt should use to connect your guest instances. Each network MUST have at least 'name' and 'cidr' keys. Each network MAY have additional keys: 'bridge' and/or 'forward' as described in the `libvirt networking`_ documentation.
+- `instances` - is a list of hashes that define the guest instances that molecule will bring up to test your role, much as for other provisioners. Each instance MUST have a subhash, `image`, with keys: `name` and `source` that defines the image that libvirt should use to boot the instance. The source MUST be URL to either a bootable qcow2 image or a vagrant box (that supports libvirt as a provider).
+
+.. _`libvirt`: http://libvirt.org
+.. _`connection string`: http://libvirt.org/uri.html
+.. _`libvirt networking`: https://libvirt.org/formatnetwork.html
+
+Libvirt example
+---------------
+
+.. code-block:: yaml
+
+    ---
+    libvirt:
+      uri: 'qemu:///system'
+      networks:
+          - name: molecule0
+            cidr: 192.168.123.1/24
+            #forward: nat
+            #bridge: virbr10
+
+      instances:
+        - name: my_instance
+          ansible_groups:
+            - myansiblegroup
+          image:
+            name: 'CentOS7'
+            source: <url to either a qcow2 image or a vagrant box that supports libvirt as a provider>
+          ssh_user: centos
+          ssh_key: '~/.ssh/my_ssh_key'
 
 Implementing Provisioners
 -------------------------
+
+The short description for implementing a provisioner is to implement the interface defined in the BaseProvisioner class.

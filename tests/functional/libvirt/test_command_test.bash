@@ -1,3 +1,5 @@
+#!/usr/bin/env bash
+
 #  Copyright (c) 2015-2016 Cisco Systems
 #
 #  Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -18,5 +20,7 @@
 #  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 #  THE SOFTWARE.
 
-__all__ = ['BaseProvisioner', 'DockerProvisioner', 'LibvirtProvisioner',
-           'OpenstackProvisioner', 'ProxmoxProvisioner', 'VagrantProvisioner']
+(
+	cd ${LIBVIRT_FUNCTIONAL_TEST_BASE_DIR}/scenarios/full
+	molecule test
+)

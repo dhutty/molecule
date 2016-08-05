@@ -1,3 +1,5 @@
+#!/usr/bin/env bash
+
 #  Copyright (c) 2015-2016 Cisco Systems
 #
 #  Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -18,5 +20,13 @@
 #  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 #  THE SOFTWARE.
 
-__all__ = ['BaseProvisioner', 'DockerProvisioner', 'LibvirtProvisioner',
-           'OpenstackProvisioner', 'ProxmoxProvisioner', 'VagrantProvisioner']
+TMP_DIR=$(mktemp -d /tmp/tmp.XXXXXXXXXX)
+
+(
+	cd ${TMP_DIR}
+	molecule init foo --libvirt
+	cd foo
+	molecule test
+)
+
+rm -rf /tmp/$(basename ${TMP_DIR})
