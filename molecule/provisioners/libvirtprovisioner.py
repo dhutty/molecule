@@ -605,12 +605,26 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
                                     instance['ip'], ssh_key, ssh_user,
                                     '-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null')))
                         device = ''.join(['eth', str(i)])
-                        # TODO: This use of nmcli means we're assuming el7-like clients, use something more generic to run dhclient against the interface device
-                        cmd.append(' '.join(
-                            ['pgrep', '-a', 'dhclient', '|', 'grep', device,
-                             '||', 'sudo', '/usr/bin/nmcli', 'con', 'add',
-                             'type', 'ethernet', 'con-name', 'molecule-' +
-                             device, 'ifname', device]))
+                        # Check for redhat-derivative && NetworkManager? => use nmcli
+                        rh_derivative = False
+                        try:
+                            rh_check_cmd = cmd + ['pgrep', '-a', 'NetworkManager']
+                            rh_derivative = subprocess.check_output(rh_check_cmd)
+                        except subprocess.CalledProcessError, e:
+                            pass
+
+                        if rh_derivative:
+                            cmd.append(' '.join(
+                                ['pgrep', '-a', 'dhclient', '|', 'grep', device,
+                                 '||', 'sudo', '/usr/bin/nmcli', 'con', 'add',
+                                 'type', 'ethernet', 'con-name', 'molecule-' +
+                                 device, 'ifname', device]))
+                        else:
+                            # Not redhat-derivative or no NetworkManager? => run dhclient.
+                            # This should take care of *at least* debian-derivatives, likely other linux distros and some other *nix
+                            cmd.append(' '.join(
+                                ['pgrep', '-a', 'dhclient', '|', 'grep', device,
+                                 '||', 'sudo', 'dhclient', device]))
                         try:
                             res = subprocess.check_output(
                                 cmd, stderr=subprocess.STDOUT)
@@ -628,7 +642,7 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
         with open(self.molecule.config.config['ansible'][
                 'inventory_file']) as instance:
             for line in instance:
-                if len(line.split()) > 0 and line.split()[0] == name:
+                if len(line.split()) > 1 and line.split()[0] == name:
                     ansible_host = line.split()[1]
                     conf['HostName'] = ansible_host.split('=')[1]
                     # Take the rest of the splits, split again on a single '='
@@ -652,7 +666,7 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
         # Try to retrieve the SSH configuration of the host.
         conf = self.conf(name=instance_name)
         ssh_extra_args = conf.pop('ansible_ssh_extra_args', '')
-        ssh_extra_args = ' '.join([ssh_extra_args] + self.m._config.config[
+        ssh_extra_args = ' '.join([ssh_extra_args] + self.molecule.config.config[
             'molecule']['raw_ssh_args'])
 
         for instance in self.instances:
