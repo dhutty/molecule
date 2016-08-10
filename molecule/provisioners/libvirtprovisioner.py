@@ -375,12 +375,14 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
         vols = pool.listAllVolumes()
         domains = self._libvirt.listAllDomains()
         for instance in self.instances:
-            # Ensure that the image source is available
+            # Ensure that the image is available
             imagefile = instance['image']['source'].split('/')[-1]
-            if not os.path.exists(os.path.join(self._sources_path, imagefile)):
-                self._fetch(instance['image']['source'], imagefile)
+            if not os.path.exists(os.path.join(self._pool_path, instance['image']['name'] + '.img')):
+                if not os.path.exists(os.path.join(self._sources_path, imagefile)):
+                    self._fetch(instance['image']['source'], imagefile)
                 if imagefile.endswith('.box'):
                     self._unpack_box(instance['image'], imagefile)
+
             # Is there an existing libvirt volume for this instance?
             vol_found = False
             for vol in vols:
@@ -389,6 +391,7 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
                     break
             if not vol_found:
                 self._create_volume(pool, instance)
+            # TODO: Are all this instance's interface's networks available?
             # Is there an existing libvirt domain defined for this instance?
             dom_found = False
             for dom in domains:
