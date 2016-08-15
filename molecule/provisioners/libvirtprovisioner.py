@@ -634,7 +634,12 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
                         except subprocess.CalledProcessError, e:
                             pass
                     i = i + 1
-
+                # Update self.molecule.config.config['libvirt']['instances'] with HostName from 'default' interface
+                instance['HostName'] = instance['ip']
+                instance['User'] = instance['ssh_user']
+                for index, inst in enumerate(self.molecule.config.config['libvirt']['instances']):
+                    if inst['name'] == instance['name']:
+                        self.molecule.config.config['libvirt']['instances'][index].update(instance)
         return entry
 
     def conf(self, name=None, ssh_config=None):

@@ -229,6 +229,9 @@ class Molecule(object):
                 instance['name'], self._provisioner._platform,
                 self._provisioner.instances)
 
+            for k in ['HostName', 'User', 'Port']:
+                if k in instance:
+                    instances[instance_name][k] = instance[k]
             if 'ansible_groups' in instance:
                 instances[instance_name][
                     'groups'] = [x for x in instance['ansible_groups']]
