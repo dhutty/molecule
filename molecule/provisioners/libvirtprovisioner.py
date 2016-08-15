@@ -639,7 +639,7 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
                 if 'ip' in instance:
                     instance['HostName'] = instance['ip']
                 else:
-                    instance['HostName'] = self._lease_ip({'mac': self._macs(dom, 'default')})
+                    instance['HostName'] = self._lease_ip({'network_name': 'default', 'mac': self._macs(dom, 'default')})
                 instance['User'] = instance['ssh_user']
                 for index, inst in enumerate(self.molecule.config.config['libvirt']['instances']):
                     if inst['name'] == instance['name']:
