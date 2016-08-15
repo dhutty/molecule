@@ -628,6 +628,7 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
                             cmd.append(' '.join(
                                 ['pgrep', '-a', 'dhclient', '|', 'grep', device,
                                  '||', 'sudo', 'dhclient', device]))
+                        utilities.print_info("\tRunning dhclient for interface {} on instance: {}".format(iface['network_name'], instance[ 'name']))
                         try:
                             res = subprocess.check_output(
                                 cmd, stderr=subprocess.STDOUT)
@@ -635,7 +636,10 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
                             pass
                     i = i + 1
                 # Update self.molecule.config.config['libvirt']['instances'] with HostName from 'default' interface
-                instance['HostName'] = instance['ip']
+                if 'ip' in instance:
+                    instance['HostName'] = instance['ip']
+                else:
+                    instance['HostName'] = self._lease_ip({'mac': self._macs(dom, 'default')})
                 instance['User'] = instance['ssh_user']
                 for index, inst in enumerate(self.molecule.config.config['libvirt']['instances']):
                     if inst['name'] == instance['name']:
