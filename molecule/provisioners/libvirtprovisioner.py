@@ -452,7 +452,7 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
                 # TODO: Consider whether this really cause molecule to exit fail?
                 pass
             # TODO: Consider whether to destroy/undefine molecule networks if they are no longer used
-            return True
+        return True
 
     def status(self):
         states = ['no state', 'running', 'blocked', 'paused', 'being shutdown',
