@@ -492,7 +492,7 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
         max_count = 6
         net = self._libvirt.networkLookupByName(interface['network_name'])
         count = 0
-        while not interface['ip']:
+        while not 'ip' not in interface:
             count = count + 1
             if count > max_count:
                 return None
