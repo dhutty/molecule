@@ -168,21 +168,43 @@ Libvirt example
     ---
     libvirt:
       uri: 'qemu:///system'
+      images:
+          - name: 'CentOS7'
+            source: <url to either a qcow2 image or a vagrant box that supports libvirt as a provider>
+            ssh_user: vagrant
+            ssh_key: '~/.vagrant.d/insecure_private_key'
+          - name: 'trusty64'
+            source: 'https://example.com/ubuntu/boxes/trusty64/trusty64.img'
+            ssh_user: vagrant
+            ssh_key: '~/.vagrant.d/insecure_private_key'
       networks:
+          - name: default
+            forward: nat
+            cidr: 192.168.122.1/24
           - name: molecule0
             cidr: 192.168.123.1/24
             #forward: nat
             #bridge: virbr10
 
       instances:
-        - name: my_instance
-          ansible_groups:
-            - myansiblegroup
+        - name: my_minimal_instance
           image:
             name: 'CentOS7'
-            source: <url to either a qcow2 image or a vagrant box that supports libvirt as a provider>
-          ssh_user: centos
-          ssh_key: '~/.ssh/my_ssh_key'
+          interfaces:
+            - network_name: default
+        - name: my_configured_instance
+          ansible_groups:
+            - example-group
+            - example-group1
+          image:
+            name: 'trusty64'
+            source: 'https://example.com/ubuntu/boxes/trusty64/trusty64.img'
+            ssh_user: vagrant
+            ssh_key: '~/.vagrant.d/insecure_private_key'
+          interfaces:
+            - network_name: default
+            - network_name: molecule0
+
 
 Implementing Provisioners
 -------------------------
