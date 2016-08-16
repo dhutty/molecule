@@ -21,7 +21,6 @@
 import collections
 import getpass
 import os.path
-import pprint
 import shlex
 import subprocess
 import tarfile
@@ -43,6 +42,7 @@ from molecule import utilities
 from molecule.provisioners import baseprovisioner
 
 LOG = utilities.get_logger(__name__)
+
 
 class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
     """
@@ -236,7 +236,8 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
                 sockets=str(instance['cpu']['sockets']),
                 cores=str(instance['cpu']['cores']),
                 threads=str(instance['cpu']['threads']))
-        ET.SubElement(dom, 'memory', unit='MiB').text = str(instance.get('memory', 1024))
+        ET.SubElement(
+            dom, 'memory', unit='MiB').text = str(instance.get('memory', 1024))
         os_element = ET.SubElement(dom, 'os')
         ET.SubElement(os_element, 'type').text = 'hvm'
         boot = ET.SubElement(os_element, 'boot', dev='hd')
@@ -339,7 +340,7 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
             self._pool_path, instance['image']['name'] + '.img')
         ET.SubElement(backing, 'format', type='qcow2')
         volxml = ET.tostring(vol)
-        LOG.info("\tXMLDesc: {}".format(volxml))
+        LOG.debug("\tXMLDesc: {}".format(volxml))
         newvol = pool.createXML(volxml)
         utilities.print_success("\tCreated volume for {}.\n".format(instance[
             'name']))
@@ -358,24 +359,28 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
             vol = pool.storageVolLookupByName(instance['name'] + '.img')
             vol.delete()
         except libvirt.libvirtError:
-            LOG.warning("\t\tNo volume for {}".format(instance[
-                'name']))
+            LOG.warning("\t\tNo volume for {}".format(instance['name']))
             return
         utilities.print_success('\t\tDestroyed libvirt volume for {}'.format(
             instance['name']))
 
     def _populate_image(self, instance):
-        image = instance.get('image', self.molecule.config.config['libvirt']['images'][0])
+        image = instance.get(
+            'image', self.molecule.config.config['libvirt']['images'][0])
         for k in ['source', 'ssh_user', 'ssh_key']:
-            image[k] = image.get(k, filter(lambda imgname: imgname['name'] == image['name'], self.molecule.config.config['libvirt']['images'])[0][k])
-        for index, inst in enumerate(self.molecule.config.config['libvirt']['instances']):
+            image[k] = image.get(k, filter(
+                lambda imgname: imgname['name'] == image['name'],
+                self.molecule.config.config['libvirt']['images'])[0][k])
+        for index, inst in enumerate(self.molecule.config.config['libvirt'][
+                'instances']):
             if inst['name'] == instance['name']:
-                if 'image' in self.molecule.config.config['libvirt']['instances'][index]:
-                    self.molecule.config.config['libvirt']['instances'][index]['image'].update(image)
+                if 'image' in self.molecule.config.config['libvirt'][
+                        'instances'][index]:
+                    self.molecule.config.config['libvirt']['instances'][index][
+                        'image'].update(image)
                 else:
-                    self.molecule.config.config['libvirt']['instances'][index]['image'] = image
-                print("updated instance")
-                pprint.pprint(instance)
+                    self.molecule.config.config['libvirt']['instances'][index][
+                        'image'] = image
         return image
 
     def up(self, no_provision=True):
@@ -391,13 +396,13 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
         domains = self._libvirt.listAllDomains()
         for instance in self.instances:
             # Get image config
-            print("up instance")
-            pprint.pprint(instance)
             image = self._populate_image(instance)
             imagefile = image['source'].split('/')[-1]
             # Ensure that the image is available
-            if not os.path.exists(os.path.join(self._pool_path, image['name'] + '.img')):
-                if not os.path.exists(os.path.join(self._sources_path, imagefile)):
+            if not os.path.exists(
+                    os.path.join(self._pool_path, image['name'] + '.img')):
+                if not os.path.exists(
+                        os.path.join(self._sources_path, imagefile)):
                     self._fetch(image['source'], imagefile)
                 if imagefile.endswith('.box'):
                     self._unpack_box(image, imagefile)
@@ -408,7 +413,7 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
                 if vol_found and not vol_found.isActive():
                     vol_found.create()
                 return vol_found  # existing volume is now running
-            except libvirt.libvirtError:
+            except libvirt.libvirtError as e:
                 self._create_volume(pool, instance)
             # TODO: Are all this instance's interface's networks available?
             # Is there an existing libvirt domain defined for this instance?
@@ -438,9 +443,8 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
                 try:
                     dom.create()
                 except libvirt.libvirtError as e:
-                    LOG.error(
-                        "\nFailed to create/boot {}: {}".format(instance[
-                            'name'], e))
+                    LOG.error("\nFailed to create/boot {}: {}".format(instance[
+                        'name'], e))
                     dom.undefine()
 
     def destroy(self):
@@ -578,7 +582,8 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
     def inventory_entry(self, instance):
         template = self.host_template
         # TODO: replace with using "proper" defaults
-        instance['interfaces'] = instance.get('interfaces', [{'network_name': 'default'}])
+        instance['interfaces'] = instance.get('interfaces',
+                                              [{'network_name': 'default'}])
         domains = self._libvirt.listAllDomains()
         image = self._populate_image(instance)
         if len(domains) == 0:
@@ -588,15 +593,10 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
             if dom.name() == instance['name']:
                 utilities.print_info("\tDHCP for instance: {}".format(instance[
                     'name']))
-                # TODO: replace with using "proper" defaults
-                print("inv_entry instance")
-                pprint.pprint(instance)
-                ssh_key = os.path.expanduser(
-                    instance['image'].get('ssh_key', '~/.ssh/id_rsa'))
-                ssh_user = instance['image'].get('ssh_user', getpass.getuser())
                 # In case no interfaces get an IP address. Perhaps this should be a fatal error, since molecule cannot run Ansible?
-                entry = template.format(instance['name'], None, ssh_key,
-                                        ssh_user)
+                entry = template.format(instance['name'], None,
+                                        os.path.expanduser(image['ssh_key']),
+                                        image['ssh_user'])
                 for iface in instance['interfaces']:
                     iface['mac'] = self._macs(dom, iface['network_name'])[
                         0]  # Assumes a single MAC for this instance on this network
@@ -607,14 +607,17 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
                                 iface['mac'], iface['network_name'], iface[
                                     'ip']))
                         entry = template.format(instance['name'], iface['ip'],
-                                                ssh_key, ssh_user)
+                                                image['ssh_key'],
+                                                image['ssh_user'])
                         # TODO: This means Ansible will use the first interface (in the order listed in molecule.yml) that has/gets an IP, perhaps support more configurability?
                         instance['ip'] = iface['ip']
                         break
                     iface['ip'] = self._lease_ip(iface)
                     if iface['ip']:
-                        entry = template.format(instance['name'], iface['ip'],
-                                                ssh_key, ssh_user)
+                        entry = template.format(
+                            instance['name'], iface['ip'],
+                            os.path.expanduser(image['ssh_key']),
+                            image['ssh_user'])
                         instance['ip'] = iface['ip']
                         break
                 # By this point, we should have waited for each NIC to dhcp, any that don't have IPs should be dhcliented
@@ -622,35 +625,45 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
                 for iface in instance['interfaces']:
                     if 'ip' not in iface:
                         cmd = []
-                        login_args = [ssh_user, ssh_key, instance['ip']]
+                        login_args = [
+                            instance['image']['ssh_user'],
+                            os.path.expanduser(instance['image']['ssh_key']),
+                            instance['ip']
+                        ]
                         login_cmd = 'ssh {} -i {} -l {} {}'
                         cmd.extend(
                             shlex.split(
                                 login_cmd.format(
-                                    instance['ip'], ssh_key, ssh_user,
+                                    instance['ip'], os.path.expanduser(
+                                        instance['image']['ssh_key']),
+                                    instance['image']['ssh_user'],
                                     '-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null')))
                         device = ''.join(['eth', str(i)])
                         # Check for redhat-derivative && NetworkManager? => use nmcli
                         rh_derivative = False
                         try:
-                            rh_check_cmd = cmd + ['pgrep', '-a', 'NetworkManager']
-                            rh_derivative = subprocess.check_output(rh_check_cmd)
+                            rh_check_cmd = cmd + ['pgrep', '-a',
+                                                  'NetworkManager']
+                            rh_derivative = subprocess.check_output(
+                                rh_check_cmd)
                         except subprocess.CalledProcessError, e:
                             pass
 
                         if rh_derivative:
                             cmd.append(' '.join(
-                                ['pgrep', '-a', 'dhclient', '|', 'grep', device,
-                                 '||', 'sudo', '/usr/bin/nmcli', 'con', 'add',
-                                 'type', 'ethernet', 'con-name', 'molecule-' +
-                                 device, 'ifname', device]))
+                                ['pgrep', '-a', 'dhclient', '|', 'grep',
+                                 device, '||', 'sudo', '/usr/bin/nmcli', 'con',
+                                 'add', 'type', 'ethernet', 'con-name',
+                                 'molecule-' + device, 'ifname', device]))
                         else:
                             # Not redhat-derivative or no NetworkManager? => run dhclient.
                             # This should take care of *at least* debian-derivatives, likely other linux distros and some other *nix
                             cmd.append(' '.join(
-                                ['pgrep', '-a', 'dhclient', '|', 'grep', device,
-                                 '||', 'sudo', 'dhclient', device]))
-                        utilities.print_info("\tRunning dhclient for interface {} on instance: {}".format(iface['network_name'], instance[ 'name']))
+                                ['pgrep', '-a', 'dhclient', '|', 'grep',
+                                 device, '||', 'sudo', 'dhclient', device]))
+                        utilities.print_info(
+                            "\tRunning dhclient for interface {} on instance: {}".format(
+                                iface['network_name'], instance['name']))
                         try:
                             res = subprocess.check_output(
                                 cmd, stderr=subprocess.STDOUT)
@@ -661,12 +674,17 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
                 if 'ip' in instance:
                     instance['HostName'] = instance['ip']
                 else:
-                    instance['HostName'] = self._lease_ip({'network_name': 'default', 'mac': self._macs(dom, 'default')})
-                for index, inst in enumerate(self.molecule.config.config['libvirt']['instances']):
+                    instance['HostName'] = self._lease_ip(
+                        {'network_name': 'default',
+                         'mac': self._macs(dom, 'default')})
+                for index, inst in enumerate(self.molecule.config.config[
+                        'libvirt']['instances']):
                     if inst['name'] == instance['name']:
-                        self.molecule.config.config['libvirt']['instances'][index].update(instance)
+                        self.molecule.config.config['libvirt']['instances'][
+                            index].update(instance)
                 instance['User'] = instance['image']['ssh_user']
-                instance['IdentityFile'] = instance['image']['ssh_key']
+                instance['IdentityFile'] = os.path.expanduser(instance[
+                    'image']['ssh_key'])
         return entry
 
     def conf(self, name=None, ssh_config=None):
@@ -701,10 +719,12 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
         # Try to retrieve the SSH configuration of the host.
         conf = self.conf(name=instance_name)
         ssh_extra_args = conf.pop('ansible_ssh_extra_args', '')
-        ssh_extra_args = ' '.join([ssh_extra_args] + self.molecule.config.config[
-            'molecule']['raw_ssh_args'])
+        ssh_extra_args = ' '.join([
+            ssh_extra_args
+        ] + self.molecule.config.config['molecule']['raw_ssh_args'])
 
         for instance in self.instances:
+            image = self._populate_image(instance)
             if instance_name == instance['name']:
                 ssh_key = os.path.expanduser(
                     instance.get('IdentityFile', '~/.ssh/id_rsa'))
