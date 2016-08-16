@@ -107,7 +107,7 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
 
     @property
     def ssh_config_file(self):
-        return None
+        return '.molecule/ssh_config'
 
     @property
     def testinfra_args(self):
@@ -447,6 +447,7 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
                         'name'], e))
                     dom.undefine()
 
+
     def destroy(self):
         """
         Destroy/undefine a libvirt instance.
@@ -685,25 +686,35 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
                 instance['User'] = instance['image']['ssh_user']
                 instance['IdentityFile'] = os.path.expanduser(instance[
                     'image']['ssh_key'])
+                # Write a ssh-config based on state
+                kwargs = {'instances': self.instances}
+                LOG.debug("\tWriting ssh_config using: {}".format(kwargs))
+                utilities.write_template(
+                    self.molecule.config.config['molecule']['ssh_config_template'],
+                    '.molecule/ssh_config', kwargs=kwargs)
         return entry
 
     def conf(self, name=None, ssh_config=None):
         """
         Parse the inventory file, return a hash for login_args()
         """
-        conf = {}
-        with open(self.molecule.config.config['ansible'][
-                'inventory_file']) as instance:
-            for line in instance:
-                if len(line.split()) > 1 and line.split()[0] == name:
-                    ansible_host = line.split()[1]
-                    conf['HostName'] = ansible_host.split('=')[1]
-                    # Take the rest of the splits, split again on a single '='
-                    # the first is the key, the second is the val
-                    for pair in line.split()[2:]:
-                        k, v = pair.split('=', 1)
-                        conf[k] = v
-        return conf
+        if ssh_config:
+            # read the state file as yaml
+            return None
+        else:
+            conf = {}
+            with open(self.molecule.config.config['ansible'][
+                    'inventory_file']) as instance:
+                for line in instance:
+                    if len(line.split()) > 1 and line.split()[0] == name:
+                        ansible_host = line.split()[1]
+                        conf['HostName'] = ansible_host.split('=')[1]
+                        # Take the rest of the splits, split again on a single '='
+                        # the first is the key, the second is the val
+                        for pair in line.split()[2:]:
+                            k, v = pair.split('=', 1)
+                            conf[k] = v
+            return conf
 
     def login_cmd(self, hostname):
         """

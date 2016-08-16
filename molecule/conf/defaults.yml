@@ -27,6 +27,7 @@ molecule:
   vagrantfile_template: vagrantfile.j2
   ansible_config_template: ansible.cfg.j2
   rakefile_template: rakefile.j2
+  ssh_config_template: ssh_config.j2
 
   # default provider to use when no --provider flag is specified
   # comment this out to default to the first in the provider list

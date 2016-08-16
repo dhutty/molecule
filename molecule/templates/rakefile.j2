@@ -27,11 +27,11 @@ namespace :serverspec do
       # If name can't be resolved to an IP, dig an IP out of .molecule/state.yml
       begin
           ip = Resolv.getaddress name
-          puts "**** Using #{name} ****"
+          puts "**** Using resolved: #{name} ****"
           ENV['TARGET_HOST'] = name
       rescue
-          ENV['TARGET_HOST'] = host['HostName']
           puts "**** Using #{host['HostName']} ****"
+          ENV['TARGET_HOST'] = host['HostName']
       end
       target.pattern = pattern.join(',')
     end

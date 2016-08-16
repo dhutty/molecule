@@ -1,0 +1,13 @@
+{% for instance in instances %}
+Host {{ instance.name }}
+{% for k in ['HostName', 'Port', 'User', 'IdentityFile'] %}
+{%- if k in instance %}
+  {{ k ~ ' ' ~ instance[k] }}
+{%- endif %}
+{% endfor %}
+  UserKnownHostsFile /dev/null
+  StrictHostKeyChecking no
+  PasswordAuthentication no
+  IdentitiesOnly yes
+  LogLevel FATAL
+{% endfor %}

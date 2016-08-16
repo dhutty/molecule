@@ -106,7 +106,7 @@ class Molecule(object):
         try:
             out = self._provisioner.conf(ssh_config=True)
             ssh_config = self._provisioner.ssh_config_file
-            if ssh_config is None:
+            if ssh_config is None or out is None:
                 return
         except subprocess.CalledProcessError as e:
             LOG.error('ERROR: {}'.format(e))
