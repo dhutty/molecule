@@ -4,6 +4,7 @@ require 'rake'
 require 'rspec/core/rake_task'
 require 'yaml'
 require 'fileutils'
+require 'resolv'
 
 task spec: 'serverspec:all'
 task default: :spec
@@ -23,7 +24,15 @@ namespace :serverspec do
 
     RSpec::Core::RakeTask.new(name.to_sym) do |target|
       puts "*** Run serverspec on #{name} ***"
-      ENV['TARGET_HOST'] = name
+      # If name can't be resolved to an IP, dig an IP out of .molecule/state.yml
+      begin
+          ip = Resolv.getaddress name
+          puts "**** Using #{name} ****"
+          ENV['TARGET_HOST'] = name
+      rescue
+          ENV['TARGET_HOST'] = host['HostName']
+          puts "**** Using #{host['HostName']} ****"
+      end
       target.pattern = pattern.join(',')
     end
   end
