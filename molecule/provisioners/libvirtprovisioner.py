@@ -436,9 +436,7 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
                             utilities.print_info("\t{}: booting".format(
                                 instance['name']))
                             dom.create()
-                            utilities.print_success(
-                                "\tUpped instance {}.\n".format(instance[
-                                    'name']))
+                            time.sleep(15)
             if not dom_found:
                 utilities.print_info("\t{}: defining".format(instance['name']))
                 dom = self._libvirt.defineXML(self._build_domain_xml(instance))
@@ -447,6 +445,7 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
                 utilities.print_info("\t{}: booting".format(instance['name']))
                 try:
                     dom.create()
+                    time.sleep(15)
                 except libvirt.libvirtError as e:
                     LOG.error("\nFailed to create/boot {}: {}".format(instance[
                         'name'], e))
@@ -517,7 +516,7 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
         :return: an IP address
         """
         delay = 1
-        max_count = 6
+        max_count = 8
         net = self._libvirt.networkLookupByName(interface['network_name'])
         count = 0
         while not 'ip' not in interface:
@@ -602,32 +601,34 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
                 entry = template.format(instance['name'], None,
                                         os.path.expanduser(image['ssh_key']),
                                         image['ssh_user'])
-                for iface in instance['interfaces']:
-                    iface['mac'] = self._macs(dom, iface['network_name'])[
-                        0]  # Assumes a single MAC for this instance on this network
-                    iface['ip'] = self._get_ip(iface['mac'])
-                    if iface['ip']:
+                for index, iface in enumerate(instance['interfaces']):
+                    instance['interfaces'][index]['mac'] = self._macs(dom, iface['network_name'])[
+                        0]  # Assumes a single MAC for this instance on this network: probably valid
+                    instance['interfaces'][index]['ip'] = self._get_ip(iface['mac'])
+                    if instance['interfaces'][index]['ip']:
                         utilities.print_success(
                             "\t\tIP found for mac {} on network: {}: {}".format(
                                 iface['mac'], iface['network_name'], iface[
                                     'ip']))
-                        entry = template.format(instance['name'], iface['ip'],
+                        entry = template.format(instance['name'], instance['interfaces'][index]['ip'],
                                                 image['ssh_key'],
                                                 image['ssh_user'])
-                        # TODO: This means Ansible will use the first interface (in the order listed in molecule.yml) that has/gets an IP, perhaps support more configurability?
-                        instance['ip'] = iface['ip']
+                        # TODO: This means the network named 'default' is special and must be present
+                        if iface['network_name'] == 'default':
+                            instance['ip'] = instance['interfaces'][index]['ip']
                         break
-                    iface['ip'] = self._lease_ip(iface)
-                    if iface['ip']:
-                        entry = template.format(
-                            instance['name'], iface['ip'],
-                            os.path.expanduser(image['ssh_key']),
-                            image['ssh_user'])
-                        instance['ip'] = iface['ip']
-                        break
+                    instance['interfaces'][index]['ip'] = self._lease_ip(iface)
+                    if instance['interfaces'][index]['ip']:
+                        # TODO: This means the network named 'default' is special and must be present
+                        if iface['network_name'] == 'default':
+                            entry = template.format(
+                                instance['name'], instance['interfaces'][index]['ip'],
+                                os.path.expanduser(image['ssh_key']),
+                                image['ssh_user'])
+                            instance['ip'] = instance['interfaces'][index]['ip']
+                            break
                 # By this point, we should have waited for each NIC to dhcp, any that don't have IPs should be dhcliented
-                i = 0
-                for iface in instance['interfaces']:
+                for index, iface in enumerate(instance['interfaces']):
                     if 'ip' not in iface:
                         cmd = []
                         login_args = [
@@ -643,7 +644,7 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
                                         instance['image']['ssh_key']),
                                     instance['image']['ssh_user'],
                                     '-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null')))
-                        device = ''.join(['eth', str(i)])
+                        device = ''.join(['eth', str(index)])
                         # Check for redhat-derivative && NetworkManager? => use nmcli
                         rh_derivative = False
                         try:
@@ -674,7 +675,6 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
                                 cmd, stderr=subprocess.STDOUT)
                         except subprocess.CalledProcessError, e:
                             pass
-                    i = i + 1
                 # Update self.molecule.config.config['libvirt']['instances'] with HostName from 'default' interface
                 if 'ip' in instance:
                     instance['HostName'] = instance['ip']
