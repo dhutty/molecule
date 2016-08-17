@@ -153,7 +153,7 @@ Libvirt Provisioner
 The Libvirt provisioner will create instances using the Python API for `libvirt`_ and can be configured with the following directives:
 
 - `uri` - the `connection string`_ to reach libvirtd.
-- `networks` is a list of hashes that describe the networks that libvirt should use to connect your guest instances. Each network MUST have at least 'name' and 'cidr' keys. Each network MAY have additional keys: 'bridge' and/or 'forward' as described in the `libvirt networking`_ documentation.
+- `networks` is a list of hashes that describe the networks that libvirt should use to connect your guest instances. Each network MUST have at least 'name' and 'cidr' keys. Each network MAY have additional keys: 'bridge' and/or 'forward' as described in the `libvirt networking`_ documentation. If a `network` has a False value for the key `dhcp`, then libvirtd's network XML will **omit** the `<dhcp>` element so that the libvirtd-controlled dnsmasq process will not offer DHCP addresses to this network and you will have to take other measures such as running your own DHCP server or static assignment.
 - `instances` - is a list of hashes that define the guest instances that molecule will bring up to test your role, much as for other provisioners. Each instance MUST have a subhash, `image`, with keys: `name` and `source` that defines the image that libvirt should use to boot the instance. The source MUST be URL to either a bootable qcow2 image or a vagrant box (that supports libvirt as a provider).
 
 .. _`libvirt`: http://libvirt.org

@@ -173,22 +173,27 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
                   cidr: 192.168.121.1/24
         """
         cidr_net = netaddr.IPNetwork(network['cidr'])
-        # Define/create a new network: 'molecule'
-        utilities.print_info("Creating libvirt network for molecule ...")
-        net = ET.Element('network', ipv6='yes')
+        utilities.print_info("Creating libvirt network: {}".format(network[
+            'name']))
+        net = ET.Element('network', ipv6='no')
         ET.SubElement(net, 'name').text = network['name']
-        if 'forward' in network:
-            forward = ET.SubElement(
-                net, 'forward', mode=getattr(network, 'forward', 'nat'))
-            if network['forward'] == 'nat':
-                nat = ET.SubElement(forward, 'nat')
-                port = ET.SubElement(nat, 'port', start='1024', end='65535')
-        #bridge = ET.SubElement(net, 'bridge', name=network['bridge'], stp='on', delay='0')
+        if 'forward' in network and network['forward'] != 'none':
+            forward = ET.SubElement(net, 'forward', mode='nat')
+            nat = ET.SubElement(forward, 'nat')
+            port = ET.SubElement(nat, 'port', start='1024', end='65535')
+        if 'bridge' in network:
+            bridge = ET.SubElement(
+                net, 'bridge', name=network['bridge'], stp='on', delay='0')
         ip = ET.SubElement(
             net, 'ip', address=str(cidr_net.ip), netmask=str(cidr_net.netmask))
-        dhcp = ET.SubElement(ip, 'dhcp')
-        dhcprange = ET.SubElement(
-            dhcp, 'range', start=str(cidr_net.ip), end=str(list(cidr_net)[-2]))
+        want_dhcp = network.get('dhcp', True)
+        if want_dhcp:
+            dhcp = ET.SubElement(ip, 'dhcp')
+            dhcprange = ET.SubElement(
+                dhcp,
+                'range',
+                start=str(cidr_net.ip),
+                end=str(list(cidr_net)[-2]))
 
         netxml = ET.tostring(net)
         LOG.debug("\tXMLDesc: {}".format(netxml))
@@ -447,7 +452,6 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
                         'name'], e))
                     dom.undefine()
 
-
     def destroy(self):
         """
         Destroy/undefine a libvirt instance.
@@ -690,8 +694,9 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
                 kwargs = {'instances': self.instances}
                 LOG.debug("\tWriting ssh_config using: {}".format(kwargs))
                 utilities.write_template(
-                    self.molecule.config.config['molecule']['ssh_config_template'],
-                    '.molecule/ssh_config', kwargs=kwargs)
+                    self.molecule.config.config['molecule'][
+                        'ssh_config_template'], '.molecule/ssh_config',
+                    kwargs=kwargs)
         return entry
 
     def conf(self, name=None, ssh_config=None):
@@ -739,6 +744,6 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
             if instance_name == instance['name']:
                 ssh_key = os.path.expanduser(
                     instance.get('IdentityFile', '~/.ssh/id_rsa'))
-                ssh_user = instance.get('User', '$USER')
+                ssh_user = instance.get('User', getpass.getuser())
 
         return [ssh_extra_args, ssh_key, ssh_user, conf['HostName']]
