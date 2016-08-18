@@ -21,6 +21,7 @@
 import collections
 import getpass
 import os.path
+from pprint import pprint as pp
 import shlex
 import subprocess
 import tarfile
@@ -210,7 +211,7 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
         if not network:
             network = {'name': 'molecule0',
                        'forward': 'nat',
-                       'bridge': 'virbr10',
+                       # 'bridge': 'virbr10',
                        'cidr': '192.168.122.1/24'}
 
         try:
@@ -276,10 +277,29 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
         #ET.SubElement(iface, 'source', network='default')
         for nic in instance.get('interfaces', [{'network_name': 'default'}]):
             iface = ET.SubElement(devices, 'interface', type='network')
+            if 'address' in nic:
+                ip = netaddr.IPAddress(nic['address'])
+                # Find the libvirt network for this interface is connected to
+                cidr = netaddr.IPNetwork(
+                    filter(lambda net: net['name'] == nic['network_name'],
+                           self.molecule.config.config['libvirt']['networks'])[
+                               0]['cidr'])
+                ET.SubElement(
+                    iface,
+                    'ip',
+                    address=nic['address'],
+                    prefix=str(cidr.prefixlen))
+                ET.SubElement(
+                    iface,
+                    'route',
+                    address=str(cidr.network),
+                    prefix=str(cidr.prefixlen),
+                    gateway=str(cidr.ip))
             ET.SubElement(iface, 'source', network=nic['network_name'])
             ET.SubElement(iface, 'model', type='virtio')
         # Finally
         domxml = ET.tostring(dom)
+        pp(domxml)
         LOG.debug("\tXMLDesc: {}".format(domxml))
         return domxml
 
@@ -597,39 +617,46 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
             if dom.name() == instance['name']:
                 utilities.print_info("\tDHCP for instance: {}".format(instance[
                     'name']))
-                # In case no interfaces get an IP address. Perhaps this should be a fatal error, since molecule cannot run Ansible?
+                # In case no interfaces get/have an IP address. Perhaps this should be a fatal error, since molecule cannot run Ansible?
                 entry = template.format(instance['name'], None,
                                         os.path.expanduser(image['ssh_key']),
                                         image['ssh_user'])
                 for index, iface in enumerate(instance['interfaces']):
-                    instance['interfaces'][index]['mac'] = self._macs(dom, iface['network_name'])[
-                        0]  # Assumes a single MAC for this instance on this network: probably valid
-                    instance['interfaces'][index]['ip'] = self._get_ip(iface['mac'])
-                    if instance['interfaces'][index]['ip']:
+                    instance['interfaces'][index]['mac'] = self._macs(
+                        dom, iface['network_name'])[
+                            0]  # Assumes a single MAC for this instance on this network: probably valid
+                    instance['interfaces'][index]['address'] = iface.get(
+                        'address', self._get_ip(iface['mac']))
+                    if instance['interfaces'][index]['address']:
                         utilities.print_success(
                             "\t\tIP found for mac {} on network: {}: {}".format(
-                                iface['mac'], iface['network_name'], iface[
-                                    'ip']))
-                        entry = template.format(instance['name'], instance['interfaces'][index]['ip'],
-                                                image['ssh_key'],
-                                                image['ssh_user'])
+                                iface['mac'], iface['network_name'], instance[
+                                    'interfaces'][index]['address']))
+                        entry = template.format(
+                            instance['name'],
+                            instance['interfaces'][index]['address'],
+                            image['ssh_key'], image['ssh_user'])
                         # TODO: This means the network named 'default' is special and must be present
                         if iface['network_name'] == 'default':
-                            instance['ip'] = instance['interfaces'][index]['ip']
+                            instance['ip'] = instance['interfaces'][index][
+                                'address']
                         break
-                    instance['interfaces'][index]['ip'] = self._lease_ip(iface)
-                    if instance['interfaces'][index]['ip']:
+                    instance['interfaces'][index]['address'] = self._lease_ip(
+                        iface)
+                    if instance['interfaces'][index]['address']:
                         # TODO: This means the network named 'default' is special and must be present
                         if iface['network_name'] == 'default':
                             entry = template.format(
-                                instance['name'], instance['interfaces'][index]['ip'],
+                                instance['name'],
+                                instance['interfaces'][index]['address'],
                                 os.path.expanduser(image['ssh_key']),
                                 image['ssh_user'])
-                            instance['ip'] = instance['interfaces'][index]['ip']
+                            instance['ip'] = instance['interfaces'][index][
+                                'address']
                             break
                 # By this point, we should have waited for each NIC to dhcp, any that don't have IPs should be dhcliented
                 for index, iface in enumerate(instance['interfaces']):
-                    if 'ip' not in iface:
+                    if 'address' not in iface:
                         cmd = []
                         login_args = [
                             instance['image']['ssh_user'],

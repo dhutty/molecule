@@ -150,11 +150,13 @@ Openstack instance example
 Libvirt Provisioner
 ---------------------
 
-The Libvirt provisioner will create instances using the Python API for `libvirt`_ and can be configured with the following directives:
+The Libvirt provisioner will create instances using the Python API for `libvirt`_ and can be configured with the following directives at the top level of `molecule.yml`:
 
 - `uri` - the `connection string`_ to reach libvirtd.
-- `networks` is a list of hashes that describe the networks that libvirt should use to connect your guest instances. Each network MUST have at least 'name' and 'cidr' keys. Each network MAY have additional keys: 'bridge' and/or 'forward' as described in the `libvirt networking`_ documentation. If a `network` has a False value for the key `dhcp`, then libvirtd's network XML will **omit** the `<dhcp>` element so that the libvirtd-controlled dnsmasq process will not offer DHCP addresses to this network and you will have to take other measures such as running your own DHCP server or static assignment.
+- `networks` is a list of hashes that describe the networks that libvirt should use to connect your guest instances. Each network MUST have at least 'name' and 'cidr' keys. Each network MAY have additional keys: 'bridge' and/or 'forward' as described in the `libvirt networking`_ documentation.
+    - If a `network` has a False value for the key `dhcp`, then libvirtd's network XML will **omit** the `<dhcp>` element so that the libvirtd-controlled dnsmasq process will not offer DHCP addresses to this network and you will have to take other measures such as running your own DHCP server or static assignment.
 - `instances` - is a list of hashes that define the guest instances that molecule will bring up to test your role, much as for other provisioners. Each instance MUST have a subhash, `image`, with keys: `name` and `source` that defines the image that libvirt should use to boot the instance. The source MUST be URL to either a bootable qcow2 image or a vagrant box (that supports libvirt as a provider).
+    - An `instance` can have a key `interfaces`, the value of which MUST be a list where each element of the list (corresponding to a network interface in the guest instance) MUST have a `network_name` which specifies which of the above `networks` the interface will be connected to. It MAY have an `address` (which libvirtd (1.2.12+) will assign to the interface); if the address is absent, molecule will attempt to DHCP an IP address for this interface.
 
 .. _`libvirt`: http://libvirt.org
 .. _`connection string`: http://libvirt.org/uri.html
@@ -183,8 +185,7 @@ Libvirt example
             cidr: 192.168.122.1/24
           - name: molecule0
             cidr: 192.168.123.1/24
-            #forward: nat
-            #bridge: virbr10
+            forward: none
 
       instances:
         - name: my_minimal_instance
@@ -203,6 +204,7 @@ Libvirt example
             ssh_key: '~/.vagrant.d/insecure_private_key'
           interfaces:
             - network_name: default
+              address: 192.168.122.10
             - network_name: molecule0
 
 
