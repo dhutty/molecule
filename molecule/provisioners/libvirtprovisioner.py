@@ -515,7 +515,7 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
         :param: an interface dict that has at least: {'mac': MAC address, 'network_name': (libvirt) name of network}
         :return: an IP address
         """
-        delay = 1
+        delay = 3
         max_count = 8
         net = self._libvirt.networkLookupByName(interface['network_name'])
         count = 0
