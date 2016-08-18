@@ -292,6 +292,7 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
                 ET.SubElement(
                     iface,
                     'route',
+                    family='ipv4',
                     address=str(cidr.network),
                     prefix=str(cidr.prefixlen),
                     gateway=str(cidr.ip))
@@ -299,7 +300,6 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
             ET.SubElement(iface, 'model', type='virtio')
         # Finally
         domxml = ET.tostring(dom)
-        pp(domxml)
         LOG.debug("\tXMLDesc: {}".format(domxml))
         return domxml
 
