@@ -368,8 +368,8 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
         ET.SubElement(vol, 'capacity', unit='GiB').text = '40'
         target = ET.SubElement(vol, 'target')
         ET.SubElement(target, 'format', type='qcow2')
-        ET.SubElement(target, 'permissions')
-        permissions = ET.SubElement(permissions, 'mode').text = '0660'
+        permissions = ET.SubElement(target, 'permissions')
+        ET.SubElement(permissions, 'mode').text = '0660'
         backing = ET.SubElement(vol, 'backingStore')
         ET.SubElement(backing, 'path').text = os.path.join(
             self._pool_path, instance['image']['name'] + '.img')
