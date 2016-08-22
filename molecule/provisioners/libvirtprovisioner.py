@@ -35,6 +35,14 @@ except ImportError:
     except ImportError:
         from xml.etree import ElementTree as ET
 
+LOG = utilities.get_logger(__name__)
+
+try:
+    import guestfs
+except ImportError:
+    LOG.warning("\tPython module for libguestfs not available, certain networking-related functionality unavailable")
+
+from jinja2 import Template
 import libvirt
 import netaddr
 import requests
@@ -42,7 +50,7 @@ import requests
 from molecule import utilities
 from molecule.provisioners import baseprovisioner
 
-LOG = utilities.get_logger(__name__)
+WAIT_FOR_BOOT = 25
 
 
 class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
@@ -410,7 +418,7 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
 
     def up(self, no_provision=True):
         """
-        Up or define/up a libvirt instance.
+        Up or define/up libvirt instances.
 
         :param: no_provision is not meaningful for libvirt instances
         """
@@ -456,20 +464,127 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
                             utilities.print_info("\t{}: booting".format(
                                 instance['name']))
                             dom.create()
-                            time.sleep(15)
+                            time.sleep(WAIT_FOR_BOOT)
             if not dom_found:
                 utilities.print_info("\t{}: defining".format(instance['name']))
                 dom = self._libvirt.defineXML(self._build_domain_xml(instance))
+                # TODO: Here is the point at which to modify with libguestfs,
+                #  i.e. after creating the domain's volume but before booting the domain.
+                # if any of this instance's interfaces has a key 'address'? or always?
+                try:
+                    guest = guestfs.GuestFS(python_return_dict=True)
+                    self._manipulate_guest_image(guest, instance)
+                    guest.unmount_all()
+                    guest.shutdown()
+                    guest.close()
+                except Exception, e:
+                    LOG.warning("\nFAILED to manipulate the guest image so could not configure network interfaces: {}".format(e))
                 utilities.print_success("\tCreated instance {}.\n".format(
                     instance['name']))
                 utilities.print_info("\t{}: booting".format(instance['name']))
                 try:
                     dom.create()
-                    time.sleep(15)
+                    time.sleep(WAIT_FOR_BOOT)
                 except libvirt.libvirtError as e:
                     LOG.error("\nFailed to create/boot {}: {}".format(instance[
                         'name'], e))
                     dom.undefine()
+
+    def _manipulate_guest_image(self, guest, instance):
+        """
+        Ensure that each network interface that libvirt creates has
+        (necessarily distro-specific) network configuration that either
+        a) specifies IP config (according to the instance's interfaces' address)
+        OR
+        b) ensures that the guest is configured to DHCP for each interface
+
+        :param: a GuestFS (for this instance/volume)
+        :param: an instance (so we can determine the desired network config)
+        """
+        # Attach the disk image to libguestfs.
+        guest.add_drive_opts(self._pool_path + instance['name'] + '.img', readonly=0)
+        guest.add_drive_opts(disk, readonly=1)
+        # Run the libguestfs back-end.
+        guest.launch()
+        # Ask libguestfs to inspect for operating systems.
+        roots = guest.inspect_os()
+        if len(roots) == 0:
+            raise(Error("inspect_vm: no operating systems found"))
+        distro = ''
+        for root in roots:
+            distro = guest.inspect_get_distro(root)
+        # Get the list of partitions.  We expect a single element
+        partitions = guest.list_partitions()
+        assert(len(partitions) == 1)
+        # Now mount the filesystem so that we can add/edit files.
+        guest.mount(partitions[0], "/")
+
+        if distro.startswith('redhat-based'):
+            template = Template("{% for k,v in iface_def.iteritems() %}\n{{ k }}={{ v }}\n{% endfor %}")
+            for iface_index, iface in enumerate(instance['interfaces']):
+                guest.write("/etc/sysconfig/networking-scripts/ifcfg-eth" + str(iface_index), template.render(self._generate_el_network_config(iface_index, iface)))
+        elif distro.startswith('debian') or distro.startswith('ubuntu'):
+            for iface_index, iface in enumerate(instance['interfaces']):
+                if 'address' in iface:
+                    template = Template("iface eth" + str(iface_index) + "inet static\n\t{% for k,v in iface_def.iteritems() %}\n{{ k }} {{ v }}\n{% endfor %}")
+                else:
+                    template = Template("iface eth" + str(iface_index) + "inet dhcp")
+                guest.write("/etc/network/interfaces.d/eth" + str(iface_index), template.render(self._generate_deb_network_config(iface_index, iface)))
+        else:
+            LOG.warning("\tMolecule only supports manipulating networking config with libguestfs for redhat-derivative or debian derivative linux distributions")
+
+    def _generate_deb_network_config(self, iface_index, iface):
+        """
+        Calculate Debian-distro network config
+
+        :param: ordinal for which interface (integer)
+        :param: the interface config from molecule.yml
+        :return: a dict suitable for feeding to the NIC config template
+        """
+        # Find the libvirt network for this interface is connected to
+        cidr = netaddr.IPNetwork(
+            filter(lambda net: net['name'] == iface['network_name'],
+                   self.molecule.config.config['libvirt']['networks'])[0]['cidr'])
+        iface_def = {}
+        if 'address' in iface: # i.e. Static
+          iface_def['address'] = iface['address']
+          iface_def['netmask']=str(cidr.netmask)
+          iface_def['broadcast']=str(cidr.broadcast)
+          iface_def['network']=str(cidr.network)
+          iface_def['gateway'] = str(cidr.ip)
+        return iface_def
+
+
+    def _generate_el_network_config(self, iface_index, iface):
+        """
+        Calculate EL(7?)-based distro network config
+
+        :param: ordinal for which interface (integer)
+        :param: the interface config from molecule.yml
+        :return: a dict suitable for feeding to the NIC config template
+        """
+        # Find the libvirt network for this interface is connected to
+        cidr = netaddr.IPNetwork(
+            filter(lambda net: net['name'] == iface['network_name'],
+                   self.molecule.config.config['libvirt']['networks'])[0]['cidr'])
+        iface_def = {
+          'NAME': 'eth' + str(iface_index),
+          'DEVICE': 'eth' + str(iface_index),
+          'ONBOOT': 'yes',
+          'TYPE': 'Ethernet',
+        }
+        if iface_index == 0:
+          iface_def['DEFROUTE'] = 'yes'
+
+        if 'address' in iface:
+          iface_def['BOOTPROTO'] = 'none'
+          iface_def['IPADDR'] = iface['address']
+          iface_def['PREFIX']=str(cidr.prefixlen)
+          iface_def['GATEWAY'] = str(cidr.ip)
+        else:
+          iface_def['BOOTPROTO'] = 'dhcp'
+        return iface_def
+
 
     def destroy(self):
         """
@@ -656,6 +771,7 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
                             break
                 # By this point, we should have waited for each NIC to dhcp, any that don't have IPs should be dhcliented
                 for index, iface in enumerate(instance['interfaces']):
+                    pp(instance['interfaces'])
                     if 'address' not in iface:
                         cmd = []
                         login_args = [
