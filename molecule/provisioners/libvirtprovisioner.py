@@ -476,7 +476,7 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
                 try:
                     guest = guestfs.GuestFS(python_return_dict=True)
                     self._manipulate_guest_image(guest, instance)
-                    guest.unmount_all()
+                    guest.umount_all()
                     guest.shutdown()
                     guest.close()
                 except Exception, e:
@@ -503,9 +503,9 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
         :param: a GuestFS (for this instance/volume)
         :param: an instance (so we can determine the desired network config)
         """
-        # Attach the disk image to libguestfs.
-        guest.add_drive_opts(self._pool_path + '/' + instance['name'] + '.img', readonly=0)
-        # Run the libguestfs back-end.
+        drive = self._pool_path + '/' + instance['name'] + '.img'
+        guest.add_drive_opts(drive, readonly=0)
+        LOG.info("\tLaunching libguestfs to edit {}".format(drive))
         guest.launch()
         # Ask libguestfs to inspect for operating systems.
         roots = guest.inspect_os()
@@ -514,23 +514,33 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
         distro = ''
         for root in roots:
             distro = guest.inspect_get_distro(root)
-        # Get the list of partitions.  We expect a single element
-        partitions = guest.list_partitions()
-        assert(len(partitions) == 1)
-        # Now mount the filesystem so that we can add/edit files.
-        guest.mount(partitions[0], "/")
+            # Sort keys by length, shortest first, so that we end up
+            # mounting the filesystems in the correct order.
+            mps = guest.inspect_get_mountpoints(root)
+            def compare(a, b):
+                return len(a) - len(b)
+            for device in sorted(mps.keys(), compare):
+                try:
+                    guest.mount_ro(mps[device], device)
+                except RuntimeError as msg:
+                    print "%s (ignored)" % msg
+        LOG.info("\tlibguestfs found {}".format(distro))
 
-        if distro.startswith('redhat-based'):
+        if distro.startswith('redhat-based') or distro.startswith('rhel'):
             template = Template("{% for k,v in iface_def.iteritems() %}\n{{ k }}={{ v }}\n{% endfor %}")
             for iface_index, iface in enumerate(instance['interfaces']):
-                guest.write("/etc/sysconfig/networking-scripts/ifcfg-eth" + str(iface_index), template.render(self._generate_el_network_config(iface_index, iface)))
+                text = template.render(ifdef=self._generate_el_network_config(iface_index, iface))
+                LOG.debug("\tWriting \n {}".format(text))
+                guest.write("/etc/sysconfig/network-scripts/ifcfg-eth" + str(iface_index), text)
         elif distro.startswith('debian') or distro.startswith('ubuntu'):
             for iface_index, iface in enumerate(instance['interfaces']):
                 if 'address' in iface:
                     template = Template("iface eth" + str(iface_index) + "inet static\n\t{% for k,v in iface_def.iteritems() %}\n{{ k }} {{ v }}\n{% endfor %}")
                 else:
                     template = Template("iface eth" + str(iface_index) + "inet dhcp")
-                guest.write("/etc/network/interfaces.d/eth" + str(iface_index), template.render(self._generate_deb_network_config(iface_index, iface)))
+                text = template.render(ifdef=self._generate_deb_network_config(iface_index, iface))
+                LOG.debug("\tWriting \n {}".format(text))
+                guest.write("/etc/network/interfaces.d/eth" + str(iface_index), text)
         else:
             LOG.warning("\tMolecule only supports manipulating networking config with libguestfs for redhat-derivative or debian derivative linux distributions")
 
