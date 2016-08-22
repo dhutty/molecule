@@ -35,6 +35,7 @@ except ImportError:
     except ImportError:
         from xml.etree import ElementTree as ET
 
+from molecule import utilities
 LOG = utilities.get_logger(__name__)
 
 try:
@@ -47,7 +48,6 @@ import libvirt
 import netaddr
 import requests
 
-from molecule import utilities
 from molecule.provisioners import baseprovisioner
 
 WAIT_FOR_BOOT = 25
@@ -368,6 +368,8 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
         ET.SubElement(vol, 'capacity', unit='GiB').text = '40'
         target = ET.SubElement(vol, 'target')
         ET.SubElement(target, 'format', type='qcow2')
+        ET.SubElement(target, 'permissions')
+        permissions = ET.SubElement(permissions, 'mode').text = '0660'
         backing = ET.SubElement(vol, 'backingStore')
         ET.SubElement(backing, 'path').text = os.path.join(
             self._pool_path, instance['image']['name'] + '.img')
@@ -602,17 +604,22 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
                 if not dom_found:
                     if dom.name() == instance['name']:
                         dom_found = True
-                        dom.destroy()
-                        dom.undefine()
+                        try:
+                            dom.destroy()
+                        except:
+                            pass
+                        try:
+                            self._destroy_volume(pool, instance)
+                        except:
+                            pass
+                        try:
+                            dom.undefine()
+                        except:
+                            pass
+                            # TODO: Consider whether these should really cause molecule to exit fail?
                         utilities.print_success(
                             '\tDestroyed and undefined libvirt instance {}'.format(
                                 instance['name']))
-            # Destroy volume
-            try:
-                self._destroy_volume(pool, instance)
-            except:
-                # TODO: Consider whether this really cause molecule to exit fail?
-                pass
             # TODO: Consider whether to destroy/undefine molecule networks if they are no longer used
         return True
 
@@ -650,8 +657,8 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
         :param: an interface dict that has at least: {'mac': MAC address, 'network_name': (libvirt) name of network}
         :return: an IP address
         """
-        delay = 3
-        max_count = 8
+        delay = 1
+        max_count = 6
         net = self._libvirt.networkLookupByName(interface['network_name'])
         count = 0
         while not 'ip' not in interface:
@@ -727,7 +734,7 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
         image = self._populate_image(instance)
         if len(domains) == 0:
             return ''
-        time.sleep(10)
+        # time.sleep(10)
         for dom in domains:
             if dom.name() == instance['name']:
                 utilities.print_info("\tDHCP for instance: {}".format(instance[
