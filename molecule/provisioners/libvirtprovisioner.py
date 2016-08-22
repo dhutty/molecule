@@ -504,8 +504,7 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
         :param: an instance (so we can determine the desired network config)
         """
         # Attach the disk image to libguestfs.
-        guest.add_drive_opts(self._pool_path + instance['name'] + '.img', readonly=0)
-        guest.add_drive_opts(disk, readonly=1)
+        guest.add_drive_opts(self._pool_path + '/' + instance['name'] + '.img', readonly=0)
         # Run the libguestfs back-end.
         guest.launch()
         # Ask libguestfs to inspect for operating systems.
