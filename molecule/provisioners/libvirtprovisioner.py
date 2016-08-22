@@ -41,6 +41,7 @@ LOG = utilities.get_logger(__name__)
 try:
     import guestfs
 except ImportError:
+    GUESTFS = False
     LOG.warning("\tPython module for libguestfs not available, certain networking-related functionality unavailable")
 
 from jinja2 import Template
@@ -369,7 +370,8 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
         target = ET.SubElement(vol, 'target')
         ET.SubElement(target, 'format', type='qcow2')
         permissions = ET.SubElement(target, 'permissions')
-        ET.SubElement(permissions, 'mode').text = '0660'
+        # TODO: FIXME: Glaring security hole for anyone who does not trust every user on the system running libvirt
+        ET.SubElement(permissions, 'mode').text = '0666'
         backing = ET.SubElement(vol, 'backingStore')
         ET.SubElement(backing, 'path').text = os.path.join(
             self._pool_path, instance['image']['name'] + '.img')
@@ -470,17 +472,18 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
             if not dom_found:
                 utilities.print_info("\t{}: defining".format(instance['name']))
                 dom = self._libvirt.defineXML(self._build_domain_xml(instance))
-                # TODO: Here is the point at which to modify with libguestfs,
-                #  i.e. after creating the domain's volume but before booting the domain.
-                # if any of this instance's interfaces has a key 'address'? or always?
-                try:
-                    guest = guestfs.GuestFS(python_return_dict=True)
-                    self._manipulate_guest_image(guest, instance)
-                    guest.umount_all()
-                    guest.shutdown()
-                    guest.close()
-                except Exception, e:
-                    LOG.warning("\nFAILED to manipulate the guest image so could not configure network interfaces: {}".format(e))
+                if GUESTFS:
+                    # TODO: Here is the point at which to modify with libguestfs,
+                    #  i.e. after creating the domain's volume but before booting the domain.
+                    # if any of this instance's interfaces has a key 'address'? or always?
+                    try:
+                        guest = guestfs.GuestFS(python_return_dict=True)
+                        self._manipulate_guest_image(guest, instance)
+                        guest.umount_all()
+                        guest.shutdown()
+                        guest.close()
+                    except Exception, e:
+                        LOG.warning("\nFAILED to manipulate the guest image so could not configure network interfaces: {}".format(e))
                 utilities.print_success("\tCreated instance {}.\n".format(
                     instance['name']))
                 utilities.print_info("\t{}: booting".format(instance['name']))
@@ -526,6 +529,7 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
                     print "%s (ignored)" % msg
         LOG.info("\tlibguestfs found {}".format(distro))
 
+        guest.write("/etc/resolv.conf", "nameserver 8.8.8.8")
         if distro.startswith('redhat-based') or distro.startswith('rhel'):
             template = Template("{% for k,v in iface_def.iteritems() %}\n{{ k }}={{ v }}\n{% endfor %}")
             for iface_index, iface in enumerate(instance['interfaces']):
@@ -586,12 +590,12 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
         }
         if iface_index == 0:
           iface_def['DEFROUTE'] = 'yes'
+          iface_def['GATEWAY'] = str(cidr.ip)
 
         if 'address' in iface:
           iface_def['BOOTPROTO'] = 'none'
           iface_def['IPADDR'] = iface['address']
           iface_def['PREFIX']=str(cidr.prefixlen)
-          iface_def['GATEWAY'] = str(cidr.ip)
         else:
           iface_def['BOOTPROTO'] = 'dhcp'
         return iface_def
