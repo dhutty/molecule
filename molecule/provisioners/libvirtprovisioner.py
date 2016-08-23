@@ -52,8 +52,6 @@ import requests
 
 from molecule.provisioners import baseprovisioner
 
-WAIT_FOR_BOOT = 25
-
 
 class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
     """
@@ -73,6 +71,7 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
         for path in [self._pool_path, self._sources_path]:
             if not os.path.exists(path):
                 os.makedirs(path, 0775)
+        self._boot_wait = 60
 
     def _get_provider(self):
         return 'libvirt'
@@ -403,6 +402,14 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
             instance['name']))
 
     def _populate_image(self, instance):
+        """
+        Get this instance's image config.
+
+        Any config specified for this instance is merged with (overriding) any config that already exists for an image of the same name.
+
+        :param: a dict of an instance
+        :return: the final image dict for that instance
+        """
         image = instance.get(
             'image', self.molecule.config.config['libvirt']['images'][0])
         for k in ['source', 'ssh_user', 'ssh_key']:
@@ -432,8 +439,8 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
         pool = self._up_pool()
         vols = pool.listAllVolumes()
         domains = self._libvirt.listAllDomains()
+        wait = True
         for instance in self.instances:
-            # Get image config
             image = self._populate_image(instance)
             imagefile = image['source'].split('/')[-1]
             # Ensure that the image is available
@@ -469,7 +476,9 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
                             utilities.print_info("\t{}: booting".format(
                                 instance['name']))
                             dom.create()
-                            time.sleep(WAIT_FOR_BOOT)
+                            if wait:
+                                time.sleep(self._boot_wait)
+                                wait = False
             if not dom_found:
                 utilities.print_info("\t{}: defining".format(instance['name']))
                 dom = self._libvirt.defineXML(self._build_domain_xml(instance))
@@ -490,7 +499,9 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
                 utilities.print_info("\t{}: booting".format(instance['name']))
                 try:
                     dom.create()
-                    time.sleep(WAIT_FOR_BOOT)
+                    if wait:
+                        time.sleep(self._boot_wait)
+                        wait = False
                 except libvirt.libvirtError as e:
                     LOG.error("\nFailed to create/boot {}: {}".format(instance[
                         'name'], e))
@@ -748,7 +759,6 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
         image = self._populate_image(instance)
         if len(domains) == 0:
             return ''
-        # time.sleep(10)
         for dom in domains:
             if dom.name() == instance['name']:
                 utilities.print_info("\tDHCP for instance: {}".format(instance[
