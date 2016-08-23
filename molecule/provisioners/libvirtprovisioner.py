@@ -534,7 +534,7 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
         if distro.startswith('redhat-based') or distro.startswith('rhel'):
             template = Template("{% for k,v in iface_def.iteritems() %}\n{{ k }}={{ v }}\n{% endfor %}")
             for iface_index, iface in enumerate(instance['interfaces']):
-                text = template.render(ifdef=self._generate_el_network_config(iface_index, iface))
+                text = template.render(iface_def=self._generate_el_network_config(iface_index, iface))
                 LOG.debug("\tWriting \n {}".format(text))
                 guest.write("/etc/sysconfig/network-scripts/ifcfg-eth" + str(iface_index), text)
         elif distro.startswith('debian') or distro.startswith('ubuntu'):
@@ -543,7 +543,7 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
                     template = Template("iface eth" + str(iface_index) + "inet static\n\t{% for k,v in iface_def.iteritems() %}\n{{ k }} {{ v }}\n{% endfor %}")
                 else:
                     template = Template("iface eth" + str(iface_index) + "inet dhcp")
-                text = template.render(ifdef=self._generate_deb_network_config(iface_index, iface))
+                text = template.render(iface_def=self._generate_deb_network_config(iface_index, iface))
                 LOG.debug("\tWriting \n {}".format(text))
                 guest.write("/etc/network/interfaces.d/eth" + str(iface_index), text)
         else:
