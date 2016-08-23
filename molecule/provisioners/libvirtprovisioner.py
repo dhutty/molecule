@@ -532,7 +532,7 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
 
         guest.write("/etc/resolv.conf", "nameserver 8.8.8.8")
         if distro.startswith('redhat-based') or distro.startswith('rhel'):
-            template = Template("{% for k,v in iface_def.iteritems() %}\n{{ k }}={{ v }}\n{% endfor %}")
+            template = Template("{% for k,v in iface_def.iteritems() %}{{ k }}={{ v }}\n{% endfor %}")
             for iface_index, iface in enumerate(instance['interfaces']):
                 text = template.render(iface_def=self._generate_el_network_config(iface_index, iface))
                 LOG.debug("\tWriting \n {}".format(text))
