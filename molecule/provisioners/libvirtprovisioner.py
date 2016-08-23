@@ -40,6 +40,7 @@ LOG = utilities.get_logger(__name__)
 
 try:
     import guestfs
+    GUESTFS = True
 except ImportError:
     GUESTFS = False
     LOG.warning("\tPython module for libguestfs not available, certain networking-related functionality unavailable")
@@ -524,7 +525,7 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
                 return len(a) - len(b)
             for device in sorted(mps.keys(), compare):
                 try:
-                    guest.mount_ro(mps[device], device)
+                    guest.mount(mps[device], device)
                 except RuntimeError as msg:
                     print "%s (ignored)" % msg
         LOG.info("\tlibguestfs found {}".format(distro))
