@@ -71,7 +71,7 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
         for path in [self._pool_path, self._sources_path]:
             if not os.path.exists(path):
                 os.makedirs(path, 0775)
-        self._boot_wait = 60
+        self._boot_wait = self.molecule.config.config['libvirt'].get('boot_wait', 90)
 
     def _get_provider(self):
         return 'libvirt'

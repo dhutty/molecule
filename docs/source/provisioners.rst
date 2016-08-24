@@ -170,6 +170,7 @@ Libvirt example
     ---
     libvirt:
       uri: 'qemu:///system'
+      boot_wait: 120
       images:
           - name: 'CentOS7'
             source: <url to either a qcow2 image or a vagrant box that supports libvirt as a provider>
