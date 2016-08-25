@@ -207,6 +207,11 @@ Libvirt example
             - network_name: default
               address: 192.168.122.10
             - network_name: molecule0
+          cpu:
+            sockets: 1
+            cores: 1
+            threads: 2
+          memory: 1024
 
 
 Implementing Provisioners
