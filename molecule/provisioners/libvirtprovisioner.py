@@ -320,7 +320,8 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
         :param url: URL to fetch
         :param filename: destination filename, will be in either self._sources_path or self._pool_path
         """
-        path = self._sources_path if filename.endswith('.box') else self._pool_path
+        path = self._sources_path if filename.endswith(
+            '.box') else self._pool_path
         utilities.print_info("Fetching image {} \n\t to {}...".format(
             url, os.path.join(path, filename)))
         r = requests.get(url, stream=True)
@@ -429,6 +430,9 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
         domains = self._libvirt.listAllDomains()
         wait = True
         for inst_index, instance in enumerate(self.instances):
+            # Ensure our first interface is on the 'default' network
+            if instance['interfaces'][0]['network_name'] != 'default':
+                instance['interfaces'].insert(0, {'network_name': 'default'})
             image = self._populate_image(instance)
             self.instances[inst_index]['image'] = image
             imagefile = image['source'].split('/')[-1]
@@ -469,9 +473,8 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
                 utilities.print_info("\t{}: defining".format(instance['name']))
                 dom = self._libvirt.defineXML(self._build_domain_xml(instance))
                 if not GUESTFS:
-                    if True:  # TODO: this should be limited to: "if any interface has an 'address'":
-                        LOG.warning(
-                            "\tlibguestfs not available, cannot autoconfigure static addresses to guest NICs")
+                    LOG.warning(
+                        "\tlibguestfs not available, cannot autoconfigure guest NICs")
                 else:
                     # TODO: Here is the point at which to modify with libguestfs,
                     #  i.e. after creating the domain's volume but before booting the domain.
@@ -499,6 +502,108 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
                         'name'], e))
                     dom.undefine()
                     raise libvirt.libvirtError(e)
+            # DHCP interfaces
+            for iface in instance['interfaces']:
+                ip = self._configure_interface(iface, dom)
+                if not ip and iface[
+                        'network_name'] != 'default':  # If we still don't have an IP, try harder (only for non-default networks, because we have to login)
+                    try:
+                        self._login_configure_network(instance)
+                    except:
+                        pass  # Give up:)
+
+    def _configure_interface(self, iface, dom):
+        """
+        :param iface: an interface dict, with at least a 'network_name'
+        :param dom: a libvirt domain object
+        :return: the IP addresss
+        """
+        # If the network address is static:
+        if 'address' in iface:
+            return iface['address']
+        # If it's DHCP
+        ip = self._get_ip(self._macs(dom, iface['network_name']))
+        if not ip:  # If we don't have an IP yet, get one
+            iface['mac'] = self._macs(dom, iface['network_name'])
+            ip = self._lease_ip(iface)
+        return ip
+
+    def _login_config_network(self, instance):
+        """
+        Login to guest, try to configure network.
+        :param instance: the instance dict
+        :return:
+        """
+        # By this point, we should have waited for each NIC to dhcp, any that don't have IPs should be dhcliented
+        for index, iface in enumerate(instance['interfaces']):
+            pp(instance['interfaces'])
+            if iface['network_name'] == 'default':
+                continue
+            if 'address' not in iface:
+                cmd = []
+                login_args = [
+                    instance['image']['ssh_user'],
+                    os.path.expanduser(instance['image']['ssh_key']),
+                    instance['ip']
+                ]
+                login_cmd = 'ssh {} -i {} -l {} {}'
+                cmd.extend(
+                    shlex.split(
+                        login_cmd.format(
+                            instance['ip'], os.path.expanduser(instance[
+                                'image']['ssh_key']), instance['image'][
+                                    'ssh_user'],
+                            '-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null')))
+                device = ''.join(['eth', str(index)])
+                # Check for redhat-derivative && NetworkManager? => use nmcli
+                rh_derivative = False
+                try:
+                    rh_check_cmd = cmd + ['pgrep', '-a', 'NetworkManager']
+                    rh_derivative = subprocess.check_output(rh_check_cmd)
+                except subprocess.CalledProcessError, e:
+                    pass
+
+                if rh_derivative:
+                    cmd.append(' '.join(
+                        ['pgrep', '-a', 'dhclient', '|', 'grep', device, '||',
+                         'sudo', '/usr/bin/nmcli', 'con', 'add', 'type',
+                         'ethernet', 'con-name', 'molecule-' + device,
+                         'ifname', device]))
+                else:
+                    # Not redhat-derivative or no NetworkManager? => run dhclient.
+                    # This should take care of *at least* debian-derivatives, likely other linux distros and some other *nix
+                    cmd.append(' '.join(
+                        ['pgrep', '-a', 'dhclient', '|', 'grep', device, '||',
+                         'sudo', 'dhclient', device]))
+                utilities.print_info(
+                    "\tRunning dhclient for interface {} on instance: {}".format(
+                        iface['network_name'], instance['name']))
+                try:
+                    res = subprocess.check_output(
+                        cmd, stderr=subprocess.STDOUT)
+                except subprocess.CalledProcessError, e:
+                    pass
+#         # Update self._lvconfig['instances'] with HostName from 'default' interface
+#         if 'ip' in instance:
+#             instance['HostName'] = instance['ip']
+#         else:
+#             instance['HostName'] = self._lease_ip(
+#                 {'network_name': 'default',
+#                  'mac': self._macs(dom, 'default')})
+#         for index, inst in enumerate(self.molecule.config.config[
+#                 'libvirt']['instances']):
+#             if inst['name'] == instance['name']:
+#                 self._lvconfig['instances'][index].update(instance)
+#         instance['User'] = instance['image']['ssh_user']
+#         instance['IdentityFile'] = os.path.expanduser(instance[
+#             'image']['ssh_key'])
+#         # Write a ssh-config based on state
+#         kwargs = {'instances': self.instances}
+#         LOG.debug("\tWriting ssh_config using: {}".format(kwargs))
+#         utilities.write_template(
+#             self.molecule.config.config['molecule'][
+#                 'ssh_config_template'], '.molecule/ssh_config',
+#             kwargs=kwargs)
 
     def _manipulate_guest_image(self, guest, instance):
         """
@@ -532,7 +637,12 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
                     print "%s (ignored)" % msg
         LOG.info("\tlibguestfs found {}".format(distro))
 
-        guest.write("/etc/resolv.conf", "nameserver 8.8.8.8")
+        nameservers = self._lvconfig.get('nameservers', ['8.8.8.8'])
+        resolv_template = Template(
+            "{% for ns in nameservers %}nameserver {{ ns }}\n{% endfor %}")
+        guest.write(
+            "/etc/resolv.conf",
+            resolv_template.render(nameservers=nameservers))
         if distro.startswith('redhat-based') or distro.startswith('rhel'):
             template = Template(
                 "{% for k,v in iface_def.iteritems() %}{{ k }}={{ v }}\n{% endfor %}")
@@ -573,8 +683,9 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
         # Find the libvirt network for this interface is connected to
         # cidr = netaddr.IPNetwork(next((net for net in self._lvconfig['networks'] if net['name'] == iface['network_name'])))
         cidr = netaddr.IPNetwork(
-                    filter(lambda net: net['name'] == iface['network_name'],
-                    self.molecule.config.config['libvirt']['networks'])[0]['cidr'])
+            filter(lambda net: net['name'] == iface['network_name'],
+                   self.molecule.config.config['libvirt']['networks'])[0][
+                       'cidr'])
         iface_def = {}
         if 'address' in iface:  # i.e. Static
             iface_def['address'] = iface['address']
@@ -595,8 +706,9 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
         # Find the libvirt network for this interface is connected to
         # cidr = netaddr.IPNetwork(next((net for net in self._lvconfig['networks'] if net['name'] == iface['network_name'])))
         cidr = netaddr.IPNetwork(
-                    filter(lambda net: net['name'] == iface['network_name'],
-                    self.molecule.config.config['libvirt']['networks'])[0]['cidr'])
+            filter(lambda net: net['name'] == iface['network_name'],
+                   self.molecule.config.config['libvirt']['networks'])[0][
+                       'cidr'])
         iface_def = {
             'NAME': 'eth' + str(iface_index),
             'DEVICE': 'eth' + str(iface_index),
@@ -662,10 +774,10 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
                         if domain.name() == instance['name']), None)
             if dom:
                 status_list.append(
-                        Status(
-                            name=instance['name'],
-                            state=states[dom.info()[0]],
-                            provider='Libvirt'))
+                    Status(
+                        name=instance['name'],
+                        state=states[dom.info()[0]],
+                        provider='Libvirt'))
             else:
                 status_list.append(
                     Status(
@@ -727,15 +839,16 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
         """
         nets = self._libvirt.listAllNetworks()
         leases = sum((net.DHCPLeases() for net in nets), [])
-        return next((lease['ipaddr'] for lease in leases if lease['mac'] == mac), None)
+        return next((lease['ipaddr'] for lease in leases
+                     if lease['mac'] == mac), None)
 
     def _macs(self, domain, network):
         """
-        Get the list of MAC addresses for a running domain.
+        Get a Domain's MAC addresses for a particular network.
 
         :param domain: a libvirt domain object
         :param network: the name of the network
-        :return: a list of MAC addresses that this domain has on the specified network
+        :return: a MAC address that this domain has on the specified network
         """
         macs = []
         nics = self._nics(domain)
@@ -744,7 +857,11 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
             source_net = nic.find('./source[@network]').get("network")
             if source_net == network:
                 macs.append(mac)
-        return macs
+        if macs:
+            return macs[
+                0]  # Assumes a single MAC for this instance on this network: probably valid
+        else:
+            return None
 
     def inventory_entry(self, instance):
         """
@@ -758,6 +875,10 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
         # TODO: replace with using "proper" defaults
         instance['interfaces'] = instance.get('interfaces',
                                               [{'network_name': 'default'}])
+
+        # Ensure our first interface is on the 'default' network
+        if instance['interfaces'][0]['network_name'] != 'default':
+            instance['interfaces'].insert(0, {'network_name': 'default'})
         domains = self._libvirt.listAllDomains()
         image = self._populate_image(instance)
         if len(domains) == 0:
@@ -765,36 +886,23 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
         dom = next((domain for domain in domains
                     if domain.name() == instance['name']), None)
         if not dom:
-            LOG.error("No libvirt domain found for {}".format(instance['name']))
-            return template.format(instance['name'], None,
-                                os.path.expanduser(image['ssh_key']),
-                                image['ssh_user'])
-
-        iface = next((iface for iface in instance['interfaces'] if iface['network_name'] == 'default'), None)
-        image = self._populate_image(instance)
-        # If the default network address is static:
-        if 'address' in iface:
-            return template.format(
-                instance['name'],
-                iface['address'],
-                image['ssh_key'], image['ssh_user'])
-            
-        # If it's DHCP
-        ip = self._get_ip(self._macs(
-                dom, iface['network_name'])[
-                    0])  # Assumes a single MAC for this instance on this network: probably valid
-        if not ip:  # If we don't have an IP yet, wait a bit, look again
-            utilities.print_info("\tDHCP for instance: {}".format(instance[
+            LOG.error("No libvirt domain found for {}".format(instance[
                 'name']))
+            return template.format(instance['name'], None,
+                                   os.path.expanduser(image['ssh_key']),
+                                   image['ssh_user'])
+
+        iface = next((iface for iface in instance['interfaces']
+                      if iface['network_name'] == 'default'), None)
+        image = self._populate_image(instance)
+        ip = self._configure_interface(iface, dom)
         # TODO: Push the discovered IP into self.instances[me]['ip']
-        return template.format(
-            instance['name'],
-            ip,
-            image['ssh_key'], image['ssh_user'])
+        return template.format(instance['name'], ip, image['ssh_key'],
+                               image['ssh_user'])
 #         for index, iface in enumerate(instance['interfaces']):
 #             instance['interfaces'][index]['mac'] = self._macs(
 #                 dom, iface['network_name'])[
-#                     0]  # Assumes a single MAC for this instance on this network: probably valid
+#                     0]
 #             instance['interfaces'][index]['address'] = iface.get(
 #                 'address', self._get_ip(iface['mac']))
 #             if instance['interfaces'][index]['address']:
@@ -824,76 +932,6 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
 #                     instance['ip'] = instance['interfaces'][index][
 #                         'address']
 #                     break
-#         # By this point, we should have waited for each NIC to dhcp, any that don't have IPs should be dhcliented
-#         for index, iface in enumerate(instance['interfaces']):
-#             pp(instance['interfaces'])
-#             if 'address' not in iface:
-#                 cmd = []
-#                 login_args = [
-#                     instance['image']['ssh_user'],
-#                     os.path.expanduser(instance['image']['ssh_key']),
-#                     instance['ip']
-#                 ]
-#                 login_cmd = 'ssh {} -i {} -l {} {}'
-#                 cmd.extend(
-#                     shlex.split(
-#                         login_cmd.format(
-#                             instance['ip'], os.path.expanduser(
-#                                 instance['image']['ssh_key']),
-#                             instance['image']['ssh_user'],
-#                             '-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null')))
-#                 device = ''.join(['eth', str(index)])
-#                 # Check for redhat-derivative && NetworkManager? => use nmcli
-#                 rh_derivative = False
-#                 try:
-#                     rh_check_cmd = cmd + ['pgrep', '-a',
-#                                           'NetworkManager']
-#                     rh_derivative = subprocess.check_output(
-#                         rh_check_cmd)
-#                 except subprocess.CalledProcessError, e:
-#                     pass
-# 
-#                 if rh_derivative:
-#                     cmd.append(' '.join(
-#                         ['pgrep', '-a', 'dhclient', '|', 'grep',
-#                          device, '||', 'sudo', '/usr/bin/nmcli', 'con',
-#                          'add', 'type', 'ethernet', 'con-name',
-#                          'molecule-' + device, 'ifname', device]))
-#                 else:
-#                     # Not redhat-derivative or no NetworkManager? => run dhclient.
-#                     # This should take care of *at least* debian-derivatives, likely other linux distros and some other *nix
-#                     cmd.append(' '.join(
-#                         ['pgrep', '-a', 'dhclient', '|', 'grep',
-#                          device, '||', 'sudo', 'dhclient', device]))
-#                 utilities.print_info(
-#                     "\tRunning dhclient for interface {} on instance: {}".format(
-#                         iface['network_name'], instance['name']))
-#                 try:
-#                     res = subprocess.check_output(
-#                         cmd, stderr=subprocess.STDOUT)
-#                 except subprocess.CalledProcessError, e:
-#                     pass
-#         # Update self._lvconfig['instances'] with HostName from 'default' interface
-#         if 'ip' in instance:
-#             instance['HostName'] = instance['ip']
-#         else:
-#             instance['HostName'] = self._lease_ip(
-#                 {'network_name': 'default',
-#                  'mac': self._macs(dom, 'default')})
-#         for index, inst in enumerate(self.molecule.config.config[
-#                 'libvirt']['instances']):
-#             if inst['name'] == instance['name']:
-#                 self._lvconfig['instances'][index].update(instance)
-#         instance['User'] = instance['image']['ssh_user']
-#         instance['IdentityFile'] = os.path.expanduser(instance[
-#             'image']['ssh_key'])
-#         # Write a ssh-config based on state
-#         kwargs = {'instances': self.instances}
-#         LOG.debug("\tWriting ssh_config using: {}".format(kwargs))
-#         utilities.write_template(
-#             self.molecule.config.config['molecule'][
-#                 'ssh_config_template'], '.molecule/ssh_config',
-#             kwargs=kwargs)
 #         return entry
 
     def conf(self, name=None, ssh_config=None):
