@@ -53,6 +53,16 @@ import requests
 
 from molecule.provisioners import baseprovisioner
 
+from contextlib import contextmanager
+from timeit import default_timer
+
+@contextmanager
+def elapsed_timer():
+    start = default_timer()
+    elapser = lambda: default_timer() - start
+    yield lambda: elapser()
+    end = default_timer()
+    elapser = lambda: end-start
 
 class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
     """
@@ -246,6 +256,8 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
         ET.SubElement(dom, 'name').text = instance['name']
         cpu = ET.SubElement(dom, 'cpu', mode='host-model')
         model = ET.SubElement(cpu, 'model', fallback='allow')
+        if 'vcpu' in instance:
+            ET.SubElement(dom, 'vcpu').text = str(instance['vcpu'])
         if 'cpu' in instance:
             topology = ET.SubElement(
                 cpu,
@@ -430,87 +442,96 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
         domains = self._libvirt.listAllDomains()
         wait = True
         for inst_index, instance in enumerate(self.instances):
-            # Ensure our first interface is on the 'default' network
-            if instance['interfaces'][0]['network_name'] != 'default':
-                instance['interfaces'].insert(0, {'network_name': 'default'})
-            image = self._populate_image(instance)
-            self.instances[inst_index]['image'] = image
-            imagefile = image['source'].split('/')[-1]
-            # Ensure that the image is available
-            image_path = os.path.join(self._pool_path, image['name'] + '.img')
-            source_path = os.path.join(self._sources_path, imagefile)
-            if not os.path.exists(image_path):
-                if not os.path.exists(source_path):
-                    self._fetch(image['source'], imagefile)
-                if imagefile.endswith('.box'):
-                    self._unpack_box(image, imagefile)
+            timer = instance['name']
+            with elapsed_timer() as elapsed:
+                # Ensure our first interface is on the 'default' network
+                if instance['interfaces'][0]['network_name'] != 'default':
+                    instance['interfaces'].insert(0, {'network_name': 'default'})
+                image = self._populate_image(instance)
+                self.instances[inst_index]['image'] = image
+                imagefile = image['source'].split('/')[-1]
+                # Ensure that the image is available
+                image_path = os.path.join(self._pool_path, image['name'] + '.img')
+                source_path = os.path.join(self._sources_path, imagefile)
+                if not os.path.exists(image_path):
+                    if not os.path.exists(source_path):
+                        self._fetch(image['source'], imagefile)
+                    if imagefile.endswith('.box'):
+                        self._unpack_box(image, imagefile)
 
-            # Is there an existing libvirt volume for this instance?
-            try:
-                vol_found = pool.storageVolLookupByName(instance['name'])
-                if vol_found and not vol_found.isActive():
-                    vol_found.create()
-                return vol_found  # existing volume is now running
-            except libvirt.libvirtError as e:
-                self._create_volume(pool, instance)
-            # TODO: Are all this instance's interface's networks available?
-            # Is there an existing libvirt domain defined for this instance?
-            dom = next((domain for domain in domains
-                        if domain.name() == instance['name']), None)
-            if dom:
-                if dom.info()[0] == 1:
-                    utilities.print_info("\t{}: already running".format(
-                        instance['name']))
-                    continue
-                else:
-                    utilities.print_info("\t{}: booting".format(instance[
-                        'name']))
-                    dom.create()
-                    if wait:
-                        time.sleep(self._boot_wait)
-                    continue
-            else:
-                utilities.print_info("\t{}: defining".format(instance['name']))
-                dom = self._libvirt.defineXML(self._build_domain_xml(instance))
-                if not GUESTFS:
-                    LOG.warning(
-                        "\tlibguestfs not available, cannot autoconfigure guest NICs")
-                else:
-                    # TODO: Here is the point at which to modify with libguestfs,
-                    #  i.e. after creating the domain's volume but before booting the domain.
-                    # if any of this instance's interfaces has a key 'address'? or always?
-                    try:
-                        guest = guestfs.GuestFS(python_return_dict=True)
-                        self._manipulate_guest_image(guest, instance)
-                        guest.umount_all()
-                        guest.shutdown()
-                        guest.close()
-                    except Exception, e:
-                        LOG.warning(
-                            "\nFAILED to manipulate the guest image so could not configure network interfaces: {}".format(
-                                e))
-                utilities.print_success("\tDefined instance {}.\n".format(
-                    instance['name']))
+                # Is there an existing libvirt volume for this instance?
                 try:
-                    utilities.print_info("\t{}: booting".format(instance[
-                        'name']))
-                    dom.create()
-                    if wait:
-                        time.sleep(self._boot_wait)
+                    vol_found = pool.storageVolLookupByName(instance['name'])
+                    if vol_found and not vol_found.isActive():
+                        vol_found.create()
+                    return vol_found  # existing volume is now running
                 except libvirt.libvirtError as e:
-                    LOG.error("\nFailed to create/boot {}: {}".format(instance[
-                        'name'], e))
-                    dom.undefine()
-                    raise libvirt.libvirtError(e)
-            # DHCP interfaces
-            for iface in instance['interfaces']:
-                ip = self._configure_interface(iface, dom)
-                if not ip and iface[
-                        'network_name'] != 'default':  # If we still don't have an IP, try harder (only for non-default networks, because we have to login)
+                    self._create_volume(pool, instance)
+                # TODO: Are all this instance's interface's networks available?
+                # Is there an existing libvirt domain defined for this instance?
+                dom = next((domain for domain in domains
+                            if domain.name() == instance['name']), None)
+                if dom:
+                    if dom.info()[0] == 1:
+                        utilities.print_info("\t{}: already running".format(
+                            instance['name']))
+                        continue
+                    else:
+                        utilities.print_info("\t{}: booting".format(instance[
+                            'name']))
+                        dom.create()
+                        if wait:
+                            time.sleep(self._boot_wait)
+                        continue
+                else:
+                    utilities.print_info("\t{}: defining".format(instance['name']))
+                    dom = self._libvirt.defineXML(self._build_domain_xml(instance))
+                    if not GUESTFS:
+                        LOG.warning(
+                            "\tlibguestfs not available, cannot autoconfigure guest NICs")
+                    else:
+                        # TODO: Here is the point at which to modify with libguestfs,
+                        #  i.e. after creating the domain's volume but before booting the domain.
+                        # if any of this instance's interfaces has a key 'address'? or always?
+                        try:
+                            guest = guestfs.GuestFS(python_return_dict=True)
+                            timer = 'LIBGUESTFS'
+                            with elapsed_timer() as elapsed:
+                                self._manipulate_guest_image(guest, instance)
+                                LOG.debug("\t {} since {}".format(elapsed, timer))
+                            guest.umount_all()
+                            guest.shutdown()
+                            guest.close()
+                        except Exception, e:
+                            LOG.warning(
+                                "\nFAILED to manipulate the guest image so could not configure network interfaces: {}".format(
+                                    e))
+                    utilities.print_success("\tDefined instance {}.\n".format(
+                        instance['name']))
                     try:
-                        self._login_configure_network(instance)
-                    except:
-                        pass  # Give up:)
+                        utilities.print_info("\t{}: booting".format(instance[
+                            'name']))
+                        dom.create()
+                        if wait:
+                            time.sleep(self._boot_wait)
+                    except libvirt.libvirtError as e:
+                        LOG.error("\nFailed to create/boot {}: {}".format(instance[
+                            'name'], e))
+                        dom.undefine()
+                        raise libvirt.libvirtError(e)
+                # DHCP interfaces
+                timer = 'DHCP'
+                with elapsed_timer() as elapsed:
+                    for iface in instance['interfaces']:
+                        ip = self._configure_interface(iface, dom)
+                        if not ip and iface[
+                                'network_name'] != 'default':  # If we still don't have an IP, try harder (only for non-default networks, because we have to login)
+                            try:
+                                self._login_configure_network(instance)
+                            except:
+                                pass  # Give up:)
+                    LOG.debug("\t {} since {}".format(elapsed, timer))
+            LOG.debug("\t {} since {}".format(elapsed, timer))
 
     def _configure_interface(self, iface, dom):
         """
@@ -670,7 +691,7 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
                             text)
         else:
             LOG.warning(
-                "\tMolecule only supports manipulating networking config with libguestfs for redhat-derivative or debian derivative linux distributions")
+                "\tMolecule only supports manipulating networking config with libguestfs for redhat-derivative or debian-derivative linux distributions")
 
     def _generate_deb_network_config(self, iface_index, iface):
         """

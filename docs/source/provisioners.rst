@@ -211,6 +211,7 @@ Libvirt example
             sockets: 1
             cores: 1
             threads: 2
+          vcpu: 4
           memory: 1024
 
 
