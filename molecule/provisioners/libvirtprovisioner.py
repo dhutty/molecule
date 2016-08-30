@@ -302,26 +302,8 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
         #ET.SubElement(iface, 'source', network='default')
         for nic in instance.get('interfaces', [{'network_name': 'default'}]):
             iface = ET.SubElement(devices, 'interface', type='network')
-            if 'address' in nic:
-                ip = netaddr.IPAddress(nic['address'])
-                # Find the libvirt network for this interface is connected to
-                cidr = netaddr.IPNetwork(
-                    filter(lambda net: net['name'] == nic['network_name'],
-                           self._lvconfig['networks'])[0]['cidr'])
-                ET.SubElement(
-                    iface,
-                    'ip',
-                    address=nic['address'],
-                    prefix=str(cidr.prefixlen))
-                ET.SubElement(
-                    iface,
-                    'route',
-                    family='ipv4',
-                    address=str(cidr.network),
-                    prefix=str(cidr.prefixlen),
-                    gateway=str(cidr.ip))
             ET.SubElement(iface, 'source', network=nic['network_name'])
-            ET.SubElement(iface, 'model', type='virtio')
+            ET.SubElement(iface, 'model', type=nic.get('model', 'virtio'))
         # Finally
         domxml = ET.tostring(dom)
         LOG.debug("\tXMLDesc: {}".format(domxml))
