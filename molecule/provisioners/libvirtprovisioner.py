@@ -56,13 +56,15 @@ from molecule.provisioners import baseprovisioner
 from contextlib import contextmanager
 from timeit import default_timer
 
-@contextmanager
-def elapsed_timer():
-    start = default_timer()
-    elapser = lambda: default_timer() - start
-    yield lambda: elapser()
-    end = default_timer()
-    elapser = lambda: end-start
+class benchmark(object):
+    def __init__(self,name):
+        self.name = name
+    def __enter__(self):
+        self.start = time.time()
+    def __exit__(self,ty,val,tb):
+        end = time.time()
+        LOG.debug("%s : %0.3f seconds" % (self.name, end-self.start))
+        return False
 
 class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
     """
@@ -442,8 +444,7 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
         domains = self._libvirt.listAllDomains()
         wait = True
         for inst_index, instance in enumerate(self.instances):
-            timer = instance['name']
-            with elapsed_timer() as elapsed:
+            with benchmark("Bringing up %s" % instance['name']):
                 # Ensure our first interface is on the 'default' network
                 if instance['interfaces'][0]['network_name'] != 'default':
                     instance['interfaces'].insert(0, {'network_name': 'default'})
@@ -495,10 +496,8 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
                         # if any of this instance's interfaces has a key 'address'? or always?
                         try:
                             guest = guestfs.GuestFS(python_return_dict=True)
-                            timer = 'LIBGUESTFS'
-                            with elapsed_timer() as elapsed:
+                            with benchmark("Manipulating %s with libguestfs" % instance['name']):
                                 self._manipulate_guest_image(guest, instance)
-                                LOG.debug("\t {} since {}".format(elapsed, timer))
                             guest.umount_all()
                             guest.shutdown()
                             guest.close()
@@ -520,8 +519,7 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
                         dom.undefine()
                         raise libvirt.libvirtError(e)
                 # DHCP interfaces
-                timer = 'DHCP'
-                with elapsed_timer() as elapsed:
+                with benchmark("Networking for %s" % dom.name()):
                     for iface in instance['interfaces']:
                         ip = self._configure_interface(iface, dom)
                         if not ip and iface[
@@ -530,8 +528,6 @@ class LibvirtProvisioner(baseprovisioner.BaseProvisioner):
                                 self._login_configure_network(instance)
                             except:
                                 pass  # Give up:)
-                    LOG.debug("\t {} since {}".format(elapsed, timer))
-            LOG.debug("\t {} since {}".format(elapsed, timer))
 
     def _configure_interface(self, iface, dom):
         """
